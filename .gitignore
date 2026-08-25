@@ -219,3 +219,6 @@ __marimo__/
 
 # Local assessment material - never commit
 /reference/
+
+# Local Python virtual environments
+.venv*/
