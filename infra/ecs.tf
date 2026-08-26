@@ -86,7 +86,7 @@ resource "aws_ecs_service" "app" {
   task_definition                   = aws_ecs_task_definition.app.arn
   desired_count                     = var.desired_count
   launch_type                       = "FARGATE"
-  platform_version                  = "LATEST"
+  platform_version                  = "1.4.0"
   enable_execute_command            = false
   health_check_grace_period_seconds = 30
   wait_for_steady_state             = true
