@@ -29,7 +29,7 @@ variable "availability_zones" {
     condition = (
       length(var.availability_zones) == 2 &&
       length(distinct(var.availability_zones)) == 2 &&
-      alltrue([for zone in var.availability_zones : startswith(zone, "eu-central-1")])
+      alltrue([for zone in var.availability_zones : can(regex("^eu-central-1[a-z]$", zone))])
     )
     error_message = "Provide two distinct availability zones in eu-central-1."
   }
