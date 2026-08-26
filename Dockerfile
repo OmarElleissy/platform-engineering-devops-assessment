@@ -7,6 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apk add --upgrade --no-cache \
+    'libcrypto3>=3.5.8-r0' \
+    'libssl3>=3.5.8-r0'
+
 RUN addgroup -S -g 10001 appgroup \
     && adduser -S -D -H -u 10001 -G appgroup -s /sbin/nologin appuser
 
