@@ -9,7 +9,9 @@ single-user assessment.
 The VPC spans two availability zones. Each zone contains one public and one
 private subnet. An internet-facing Application Load Balancer occupies both
 public subnets and forwards HTTP port 80 to ECS Fargate task IPs on port 8080.
-Tasks run in both private subnets without public IP addresses.
+The ECS service can place Fargate tasks in either private subnet, and tasks do
+not receive public IP addresses. A `desired_count` of `1` does not guarantee
+simultaneous task placement across both availability zones.
 
 Both private subnets share one route through a NAT Gateway in public subnet A.
 The NAT path lets a task pull its ECR image and publish logs over HTTPS without
@@ -104,6 +106,19 @@ they remain visible and are not placed in an ignore file:
 Consequently, a High/Critical blocking scan exits `1` until the later HTTPS
 and private-endpoint work removes the relevant exceptions. This is an accepted
 assessment result, not a claim that the scan is clean.
+
+Authenticate to AWS before running Terraform plan or apply commands:
+
+```bash
+aws login --remote --profile assessment-admin --region eu-central-1
+export AWS_PROFILE=assessment-admin
+export AWS_REGION=eu-central-1
+export AWS_DEFAULT_REGION=eu-central-1
+eval "$(aws configure export-credentials --profile assessment-admin --format env)"
+```
+
+These credentials are temporary, must never be committed, and may need to be
+renewed when they expire.
 
 A plan is read-only with respect to AWS resources, but it queries the selected
 account and may contain account metadata. Do not save plan files in Git.

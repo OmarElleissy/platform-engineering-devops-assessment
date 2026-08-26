@@ -10,5 +10,5 @@ desired_count = 0
 image_tag     = "replace-with-git-sha"
 
 additional_tags = {
-  Owner = "replace-with-owner"
+  Owner = "assessment-candidate"
 }

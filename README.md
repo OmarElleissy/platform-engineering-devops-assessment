@@ -6,15 +6,22 @@ packaged as a hardened Linux container.
 
 ## Current status
 
-**Phase 1 is complete.** The application, automated checks, hardened container,
-security scans, and point-in-time evidence are implemented.
+**Phase 1 is implemented and validated.** The application, automated checks,
+hardened container, security scans, and point-in-time evidence are complete.
+
+**Phase 2A is implemented.** The Terraform code is formatted, validated,
+security-scanned, and read-only planned. The accepted scan findings and design
+tradeoffs remain documented; a plan describes intended changes and does not
+mean that infrastructure exists.
+
+**Phase 2B live deployment has not started.** No AWS deployment or live
+application endpoint is claimed.
 
 The following work remains pending and is not represented as complete:
 
-- Terraform and AWS deployment
+- Phase 2B AWS deployment and live validation
 - CI/CD
 - Kubernetes reference manifests
-- Networking design
 - Observability design
 
 ## Implemented Phase 1 features
@@ -32,9 +39,36 @@ The following work remains pending and is not represented as complete:
 - All Linux capabilities dropped at runtime
 - `no-new-privileges` compatibility
 
+## Phase 2A AWS architecture
+
+Terraform defines an ECS Fargate deployment in one VPC. A public Application
+Load Balancer spans two public subnets and forwards traffic to ECS task ENIs in
+two private subnets across two availability zones. The service can place its
+task in either private subnet; `desired_count = 1` does not provide simultaneous
+application capacity in both zones.
+
+The design deliberately uses one NAT Gateway to reduce assessment cost, with
+the accepted availability and cross-zone data-transfer tradeoff. Bootstrap
+starts at `desired_count = 0` until an immutable ECR image tag exists. The ECS
+execution role is limited to pulling that repository image and writing the
+application's logs; there is no application task role because the service does
+not call AWS APIs.
+
+The task runs with a fixed non-root UID/GID, a read-only root filesystem, and
+all Linux capabilities dropped. The temporary listener is HTTP-only with no
+domain, ACM certificate, or TLS. Terraform state is local, so it lacks shared
+locking and centralized recovery. The NAT Gateway, load balancer, public IPv4
+addresses, Fargate runtime, image storage, logs, and data transfer can generate
+cost. Any future live validation should be followed by a deliberate destroy to
+limit charges, subject to the ECR non-empty safety check.
+
+See [infra/README.md](infra/README.md) for the detailed Terraform workflow,
+security-scan findings, bootstrap sequence, and cleanup guidance.
+
 ## Repository structure
 
-The public Phase 1 repository layout is:
+The public repository preserves the Phase 1 files and adds the Phase 2A
+Terraform configuration under `infra/`:
 
 ```text
 .
@@ -49,6 +83,22 @@ The public Phase 1 repository layout is:
 │       └── phase1-validation.txt
 ├── tests/
 │   └── test_health.py
+├── infra/
+│   ├── .terraform.lock.hcl
+│   ├── README.md
+│   ├── alb.tf
+│   ├── ecr.tf
+│   ├── ecs.tf
+│   ├── iam.tf
+│   ├── locals.tf
+│   ├── logs.tf
+│   ├── networking.tf
+│   ├── outputs.tf
+│   ├── providers.tf
+│   ├── security-groups.tf
+│   ├── terraform.tfvars.example
+│   ├── variables.tf
+│   └── versions.tf
 ├── .dockerignore
 ├── .gitignore
 ├── Dockerfile
@@ -271,9 +321,12 @@ operational support outweighs image minimization.
 
 ## Known limitations
 
-- Infrastructure is not implemented yet.
+- Phase 2B live deployment and post-deployment validation have not started.
 - CI/CD is not implemented yet.
 - There is no TLS termination or cloud endpoint yet.
+- Terraform state is local rather than stored in a protected remote backend.
+- The planned design uses one NAT Gateway and one running task, so it does not
+  claim multi-AZ application availability.
 - The health endpoint validates process health only; it does not check external
   dependencies, readiness, or downstream service health.
 - Transitive dependencies are not yet locked with hashes.
@@ -284,10 +337,12 @@ operational support outweighs image minimization.
 - Add hash-locked, reproducible transitive dependency resolution.
 - Pin the verified base image by digest and automate controlled refreshes.
 - Expand health semantics if the service gains external dependencies.
-- Implement the pending Terraform and AWS deployment phase.
+- Complete Phase 2B deployment and live validation only with explicit approval,
+  then destroy the assessment resources after evidence is captured.
 - Implement CI/CD with automated tests, linting, builds, and security gates.
 - Add pending Kubernetes reference manifests.
-- Produce the pending networking and observability designs.
+- Add production-grade networking and observability controls, including VPC
+  endpoints, flow logs, alarms, and a protected remote Terraform backend.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure
   phase.
 
