@@ -1,0 +1,14 @@
+# Defaults already describe the approved assessment architecture. Copy this file
+# to terraform.tfvars only when an override is needed; real tfvars are ignored.
+
+aws_region         = "eu-central-1"
+availability_zones = ["eu-central-1a", "eu-central-1b"]
+allowed_http_cidrs = ["0.0.0.0/0"]
+
+# Keep zero until the matching immutable image tag has been pushed to ECR.
+desired_count = 0
+image_tag     = "replace-with-git-sha"
+
+additional_tags = {
+  Owner = "replace-with-owner"
+}
