@@ -36,13 +36,16 @@ without workflow warnings or Node.js 20 deprecation warnings. This remains a
 CI-only workflow: it does not authenticate to AWS or a registry, push an image,
 or deploy. See the sanitized [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
-**Phase 3B Kubernetes reference manifests are implemented.** Native Kustomize
-rendering, strict schema validation, and deterministic security-policy checks
-are now defined in CI, but this new job remains unverified until its first
-GitHub Actions run succeeds. The manifests have not been deployed or admitted
-by a real cluster; no Kubernetes cluster or live endpoint exists. See the
-[Kubernetes reference deployment](k8s/README.md) for the security model, image
-replacement requirement, operator workflow, and validation limitations.
+**Phase 3B Kubernetes reference manifests are implemented and successfully
+validated in GitHub Actions.** Run `#5`, triggered by a push to
+`feature/assessment-implementation`, completed all four jobs successfully in 1
+minute 10 seconds without workflow or Node.js deprecation warnings. Native
+Kustomize rendering, strict schema validation, and deterministic
+security-policy assertions passed. The manifests have not been deployed or
+admitted by a real cluster; no Kubernetes cluster or live endpoint exists. See
+the sanitized
+[Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
+and the [Kubernetes reference deployment](k8s/README.md).
 
 **There is currently no live endpoint.** The environment can be recreated from
 the committed application and Terraform source in approximately 15–25 minutes
@@ -114,6 +117,7 @@ and includes Phase 3B Kubernetes reference manifests under `k8s/`:
 ├── evidence/
 │   ├── phase2-aws-deployment-and-cleanup.md
 │   ├── phase3a-ci-validation.md
+│   ├── phase3b-kubernetes-ci-validation.md
 │   └── security/
 │       ├── README.md
 │       ├── phase1-filesystem-scan.txt
@@ -194,7 +198,7 @@ python -m pytest
 python -m pip check
 ```
 
-## Continuous integration (Phase 3A)
+## Continuous integration (Phases 3A and 3B)
 
 The [CI workflow](.github/workflows/ci.yml) runs for pushes to `main` and
 `feature/**`, for pull requests, and by manual dispatch. Concurrency control
@@ -205,6 +209,14 @@ GitHub Actions run `#2` successfully completed all three jobs with no workflow
 warnings or Node.js 20 deprecation warnings. The sanitized result is recorded in
 the [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
+The subsequent Phase 3B-enabled workflow run `#5`, triggered by a push to
+`feature/assessment-implementation`, successfully completed all four jobs in 1
+minute 10 seconds without workflow or Node.js deprecation warnings. The locally
+resolved workflow commit is
+`71ef21f1aaea0fdf253db0ca3f4d5b9a4364fcec`; the exact execution timestamp was
+not recorded. See the
+[Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md).
+
 The workflow uses Python 3.12 and caches pip downloads against both requirements
 files. It installs the runtime and development dependencies, runs `pip check`,
 Ruff, and pytest, and separately checks Terraform formatting before initializing
@@ -214,8 +226,10 @@ plan or any state-changing Terraform command.
 A separate Kubernetes validation job downloads checksum-verified, exactly
 pinned kubectl and Kubeconform releases. It renders the Kustomization without a
 cluster context, performs strict versioned schema validation, and applies
-deterministic policy assertions to all six rendered resources. This job has not
-yet completed a GitHub Actions run and is not represented as passing.
+deterministic policy assertions to all six rendered resources. This job passed
+in GitHub Actions without contacting a Kubernetes API server. The result is
+configuration validation only: no real cluster admission, deployment, or
+runtime validation occurred.
 
 Trivy scans the checked-out repository for dependency vulnerabilities and
 secrets while explicitly excluding ignored local material, Terraform state,
@@ -426,9 +440,9 @@ operational support outweighs image minimization.
   were not retained in the available sanitized evidence.
 - Phase 3A covers CI only; registry publishing and gated cloud deployment are
   not implemented.
-- Native Kubernetes rendering and schema validation are implemented in CI but
-  remain unverified until the new job completes its first GitHub Actions run;
-  the manifests have not been admitted or deployed to a cluster.
+- Native Kubernetes rendering, strict schema validation, and policy assertions
+  passed in CI, but the manifests have not been admitted or deployed to a real
+  cluster and no Kubernetes endpoint exists.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
@@ -448,8 +462,8 @@ operational support outweighs image minimization.
   while retaining explicit approval gates for infrastructure changes.
 - Implement separately gated CD for registry publishing and cloud deployment.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
-- After the new CI job succeeds, test admission and the reference deployment on
-  a disposable cluster.
+- Test admission and the reference deployment on a disposable cluster before
+  any promotion.
 - Add production-grade networking and observability controls, including VPC
   endpoints, flow logs, alarms, and a protected remote Terraform backend.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure

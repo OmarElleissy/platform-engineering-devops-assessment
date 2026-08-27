@@ -4,9 +4,12 @@
 
 These manifests provide a secure Kubernetes reference deployment for the
 `platform-assessment` health service. They are configuration and documentation
-only: they have been checked locally but have not been applied to a Kubernetes
-cluster. They create no Ingress, LoadBalancer, NodePort, or other public
-endpoint.
+only: native Kustomize rendering, strict schema validation, and deterministic
+policy assertions passed in GitHub Actions without workflow warnings. They have
+not been admitted or applied to a Kubernetes cluster and create no Ingress,
+LoadBalancer, NodePort, or other public endpoint. See the sanitized
+[Phase 3B Kubernetes CI evidence](../evidence/phase3b-kubernetes-ci-validation.md).
+Continuous delivery, registry publishing, and live deployment remain pending.
 
 ## Files
 
@@ -60,7 +63,7 @@ tested image. Do not use `latest` or a mutable environment tag.
 is required to be immutable. Registry publishing and credential design are
 outside this reference configuration.
 
-## Local rendering and validation
+## Rendering and CI validation
 
 From the repository root, render with either installed implementation:
 
@@ -70,11 +73,20 @@ kustomize build k8s
 ```
 
 Only one command is necessary. `kubectl kustomize` and `kustomize build` render
-locally and do not require a cluster. On the authoring host neither binary nor a
-Kubernetes schema validator was available, so PyYAML was used for offline YAML
-parsing, deterministic resource assembly, and policy assertions. Native
-Kustomize rendering, schema validation, admission, and API-version compatibility
-with a target cluster remain to be verified.
+locally and do not require a cluster.
+
+The Phase 3B GitHub Actions job successfully used native Kustomize rendering,
+strict versioned Kubeconform schema validation, and safe YAML policy assertions.
+It confirmed exactly one Namespace, ServiceAccount, Deployment, Service,
+NetworkPolicy, and PodDisruptionBudget, along with the documented replica,
+health-probe, non-root, seccomp, filesystem, privilege, capability, token,
+resource, network-isolation, disruption-budget, and image-placeholder policies.
+The four-job workflow completed without workflow or Node.js deprecation
+warnings.
+
+This was cluster-offline configuration validation: it did not use a Kubernetes
+context or contact a Kubernetes API server. Admission and API-version
+compatibility with a specific target cluster remain unverified.
 
 Some `kubectl` client-side dry-run paths still perform API discovery. Do not use
 an active context for offline review. For guaranteed offline schema validation,
@@ -175,17 +187,21 @@ inside it. Review namespace contents and retention requirements before cleanup.
 ## Known limitations
 
 - The manifests have not been deployed or admitted by a real cluster.
+- Scheduling, rolling updates, Pod disruption behavior, registry
+  authentication, and real image pulling have not been tested.
 - The example registry is intentionally invalid and cannot pull an image.
 - No public endpoint is created.
 - Pod Security Admission depends on cluster version and configuration.
-- NetworkPolicy enforcement depends on the CNI implementation.
+- NetworkPolicy structure passed CI policy and schema checks, but enforcement
+  has not been tested with a real CNI implementation.
 - CPU and memory settings are assessment defaults, not measured production
   capacity.
 - The process-only health endpoint does not validate external dependencies.
 
 ## Production enhancements
 
-- Add pinned-schema manifest validation and Kustomize rendering to CI.
+- Maintain the pinned CI rendering and schema-validation toolchain as supported
+  Kubernetes versions change.
 - Test admission, rollout, disruption, and network isolation on a disposable
   cluster before promotion.
 - Add TLS and an authenticated Ingress or Gateway only when public exposure is
