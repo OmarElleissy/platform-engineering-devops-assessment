@@ -9,17 +9,33 @@ packaged as a hardened Linux container.
 **Phase 1 is implemented and validated.** The application, automated checks,
 hardened container, security scans, and point-in-time evidence are complete.
 
-**Phase 2A is implemented.** The Terraform code is formatted, validated,
-security-scanned, and read-only planned. The accepted scan findings and design
-tradeoffs remain documented; a plan describes intended changes and does not
-mean that infrastructure exists.
+**Phase 2 is implemented and lifecycle-validated.** The Terraform was
+formatted, validated, security-scanned, and reviewed through plans. The
+infrastructure was successfully provisioned, the application was deployed to
+ECS Fargate and validated, and the temporary environment was then intentionally
+destroyed. Item-level evidence gaps are marked explicitly in the sanitized
+[Phase 2 evidence](evidence/phase2-aws-deployment-and-cleanup.md).
 
-**Phase 2B live deployment has not started.** No AWS deployment or live
-application endpoint is claimed.
+Recorded validation confirmed an active ECS service at desired/running/pending
+counts `1/1/0` with a completed rollout, a running healthy Fargate task, and a
+healthy ALB target. The health endpoint returned HTTP `200` with
+`{"status":"healthy"}`, five additional consecutive requests also returned
+`200`, and CloudWatch captured application startup and successful health
+traffic. Terraform later reported `32 destroyed` during intentional cleanup.
+
+The release-image security gate initially found two High findings in Alpine's
+OpenSSL libraries. Both packages were upgraded to their fixed release, the
+image was rebuilt without old build cache, and the remediated image passed the
+recorded High/Critical blocking scan with zero High and zero Critical findings.
+No suppression rule was used.
+
+**There is currently no live endpoint.** The environment can be recreated from
+the committed application and Terraform source in approximately 15–25 minutes
+under normal AWS and network conditions. This is a planning estimate, not a
+measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- Phase 2B AWS deployment and live validation
 - CI/CD
 - Kubernetes reference manifests
 - Observability design
@@ -59,8 +75,9 @@ all Linux capabilities dropped. The temporary listener is HTTP-only with no
 domain, ACM certificate, or TLS. Terraform state is local, so it lacks shared
 locking and centralized recovery. The NAT Gateway, load balancer, public IPv4
 addresses, Fargate runtime, image storage, logs, and data transfer can generate
-cost. Any future live validation should be followed by a deliberate destroy to
-limit charges, subject to the ECR non-empty safety check.
+cost. The Phase 2 environment was deliberately destroyed after validation to
+limit charges and exercise the infrastructure lifecycle, subject to the ECR
+non-empty safety check. Any recreation should follow the same cleanup strategy.
 
 See [infra/README.md](infra/README.md) for the detailed Terraform workflow,
 security-scan findings, bootstrap sequence, and cleanup guidance.
@@ -76,6 +93,7 @@ Terraform configuration under `infra/`:
 │   ├── __init__.py
 │   └── main.py
 ├── evidence/
+│   ├── phase2-aws-deployment-and-cleanup.md
 │   └── security/
 │       ├── README.md
 │       ├── phase1-filesystem-scan.txt
@@ -321,9 +339,14 @@ operational support outweighs image minimization.
 
 ## Known limitations
 
-- Phase 2B live deployment and post-deployment validation have not started.
+- The Phase 2 environment is intentionally offline after validation and
+  destruction; there is no retained cloud endpoint.
+- The bootstrap completion time and summary, exact destruction-completion time,
+  deployed image tag, billable cost, and several post-destroy inventory checks
+  were not retained in the available sanitized evidence.
 - CI/CD is not implemented yet.
-- There is no TLS termination or cloud endpoint yet.
+- The deployed assessment used plaintext HTTP without TLS or a custom domain;
+  no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
 - The planned design uses one NAT Gateway and one running task, so it does not
   claim multi-AZ application availability.
@@ -337,8 +360,8 @@ operational support outweighs image minimization.
 - Add hash-locked, reproducible transitive dependency resolution.
 - Pin the verified base image by digest and automate controlled refreshes.
 - Expand health semantics if the service gains external dependencies.
-- Complete Phase 2B deployment and live validation only with explicit approval,
-  then destroy the assessment resources after evidence is captured.
+- Automate future Phase 2 recreation, evidence capture, and verified cleanup
+  while retaining explicit approval gates for infrastructure changes.
 - Implement CI/CD with automated tests, linting, builds, and security gates.
 - Add pending Kubernetes reference manifests.
 - Add production-grade networking and observability controls, including VPC

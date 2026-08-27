@@ -4,6 +4,32 @@ This directory defines the smallest approved AWS platform for the existing
 containerized FastAPI service. Terraform uses local state for this initial
 single-user assessment.
 
+## Lifecycle status
+
+The Phase 2 environment completed this temporary lifecycle:
+
+```text
+Provisioned -> Deployed -> Validated -> Intentionally destroyed
+```
+
+The environment is currently offline and has no live endpoint. Destruction was
+deliberate, occurred after evidence capture, and was part of cost control and
+infrastructure-lifecycle validation. Exact lifecycle timestamps and any
+unrecorded item-level checks are identified in the sanitized
+[Phase 2 evidence](../evidence/phase2-aws-deployment-and-cleanup.md).
+
+| Recorded event | Result |
+| --- | --- |
+| Bootstrap apply started | `2026-08-26 20:31:02 UTC` |
+| Application validation | Evidence window `2026-08-26 23:42:00 UTC` through `2026-08-26 23:43:02 UTC` |
+| Cleanup started | `2026-08-26 23:56:47 UTC` |
+| Terraform destruction result | `0 added, 0 changed, 32 destroyed`; exact completion timestamp not recorded |
+
+Before destruction, the ECS service was active at desired/running/pending
+counts `1/1/0`, its rollout was complete, the Fargate task was running and
+healthy, the ALB target was healthy, repeated health requests returned HTTP
+`200`, and CloudWatch application logging was confirmed.
+
 ## Architecture
 
 The VPC spans two availability zones. Each zone contains one public and one
@@ -147,14 +173,16 @@ useful only after that deployment completes successfully.
 
 ## Apply and cleanup commands
 
-These commands are documentation only. Review a plan before any future apply:
+These commands document the workflow for a future deliberate recreation.
+Review a fresh plan before every apply; do not reuse a stale saved plan:
 
 ```bash
 AWS_PROFILE=assessment-admin terraform -chdir=infra plan
 AWS_PROFILE=assessment-admin terraform -chdir=infra apply
 ```
 
-Cleanup is also a deliberate future action, not part of Phase 2A:
+After validation and evidence capture, review cleanup and destroy the temporary
+environment deliberately:
 
 ```bash
 AWS_PROFILE=assessment-admin terraform -chdir=infra destroy
