@@ -36,9 +36,11 @@ without workflow warnings or Node.js 20 deprecation warnings. This remains a
 CI-only workflow: it does not authenticate to AWS or a registry, push an image,
 or deploy. See the sanitized [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
-**Phase 3B Kubernetes reference manifests are implemented and locally validated
-for YAML structure and policy consistency.** They have not been deployed or
-admitted by a Kubernetes cluster and create no public endpoint. See the
+**Phase 3B Kubernetes reference manifests are implemented.** Native Kustomize
+rendering, strict schema validation, and deterministic security-policy checks
+are now defined in CI, but this new job remains unverified until its first
+GitHub Actions run succeeds. The manifests have not been deployed or admitted
+by a real cluster; no Kubernetes cluster or live endpoint exists. See the
 [Kubernetes reference deployment](k8s/README.md) for the security model, image
 replacement requirement, operator workflow, and validation limitations.
 
@@ -209,6 +211,12 @@ Ruff, and pytest, and separately checks Terraform formatting before initializing
 without a backend and validating the configuration. It never runs a Terraform
 plan or any state-changing Terraform command.
 
+A separate Kubernetes validation job downloads checksum-verified, exactly
+pinned kubectl and Kubeconform releases. It renders the Kustomization without a
+cluster context, performs strict versioned schema validation, and applies
+deterministic policy assertions to all six rendered resources. This job has not
+yet completed a GitHub Actions run and is not represented as passing.
+
 Trivy scans the checked-out repository for dependency vulnerabilities and
 secrets while explicitly excluding ignored local material, Terraform state,
 runtime variable files, plans, VCS data, and local tool directories. This scan
@@ -216,15 +224,16 @@ does not enable Terraform misconfiguration checks, so accepted Phase 2
 architecture tradeoffs do not become unrelated SCA blockers. High or Critical
 findings fail the job.
 
-After both quality jobs succeed, Buildx builds `linux/amd64`, tags the local
-image with the immutable Git commit SHA, uses GitHub Actions layer caching, and
-loads the image into the runner without pushing it. Trivy scans that exact image
-and blocks on every High or Critical vulnerability; no ignore file or
-`--ignore-unfixed` exception is used. The same image then runs with a read-only
-root filesystem, all Linux capabilities dropped, `no-new-privileges`, and port
-`8080` bound only to runner loopback. A bounded retry verifies Docker health,
-HTTP `200`, the exact `{"status":"healthy"}` response, and runtime UID/GID
-`10001:10001`. Cleanup runs even when validation fails.
+After the Python, Terraform, and Kubernetes validation jobs succeed, Buildx
+builds `linux/amd64`, tags the local image with the immutable Git commit SHA,
+uses GitHub Actions layer caching, and loads the image into the runner without
+pushing it. Trivy scans that exact image and blocks on every High or Critical
+vulnerability; no ignore file or `--ignore-unfixed` exception is used. The same
+image then runs with a read-only root filesystem, all Linux capabilities
+dropped, `no-new-privileges`, and port `8080` bound only to runner loopback. A
+bounded retry verifies Docker health, HTTP `200`, the exact
+`{"status":"healthy"}` response, and runtime UID/GID `10001:10001`. Cleanup
+runs even when validation fails.
 
 The workflow grants only `contents: read` and receives no AWS or registry
 credentials because CI is intentionally isolated from delivery. Registry push
@@ -417,9 +426,9 @@ operational support outweighs image minimization.
   were not retained in the available sanitized evidence.
 - Phase 3A covers CI only; registry publishing and gated cloud deployment are
   not implemented.
-- The Kubernetes manifests passed local YAML and policy checks but have not
-  been rendered by a native Kustomize binary, schema-validated, admitted, or
-  deployed to a cluster.
+- Native Kubernetes rendering and schema validation are implemented in CI but
+  remain unverified until the new job completes its first GitHub Actions run;
+  the manifests have not been admitted or deployed to a cluster.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
@@ -439,8 +448,8 @@ operational support outweighs image minimization.
   while retaining explicit approval gates for infrastructure changes.
 - Implement separately gated CD for registry publishing and cloud deployment.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
-- Add pinned-schema Kubernetes validation to CI and test the reference
-  deployment on a disposable cluster.
+- After the new CI job succeeds, test admission and the reference deployment on
+  a disposable cluster.
 - Add production-grade networking and observability controls, including VPC
   endpoints, flow logs, alarms, and a protected remote Terraform backend.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure
