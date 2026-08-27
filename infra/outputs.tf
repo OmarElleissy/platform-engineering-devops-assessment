@@ -6,16 +6,19 @@ output "aws_region" {
 output "vpc_id" {
   description = "ID of the assessment VPC."
   value       = aws_vpc.this.id
+  sensitive   = true
 }
 
 output "public_subnet_ids" {
   description = "Ordered IDs of the public subnets."
   value       = [for key in sort(keys(aws_subnet.public)) : aws_subnet.public[key].id]
+  sensitive   = true
 }
 
 output "private_subnet_ids" {
   description = "Ordered IDs of the private subnets."
   value       = [for key in sort(keys(aws_subnet.private)) : aws_subnet.private[key].id]
+  sensitive   = true
 }
 
 output "ecr_repository_name" {
@@ -26,6 +29,7 @@ output "ecr_repository_name" {
 output "ecr_repository_url" {
   description = "URL to use when tagging and pushing the application image."
   value       = aws_ecr_repository.app.repository_url
+  sensitive   = true
 }
 
 output "ecs_cluster_name" {
@@ -41,6 +45,7 @@ output "ecs_service_name" {
 output "ecs_task_definition_arn" {
   description = "ARN of the current ECS task-definition revision."
   value       = aws_ecs_task_definition.app.arn
+  sensitive   = true
 }
 
 output "cloudwatch_log_group_name" {
@@ -51,9 +56,11 @@ output "cloudwatch_log_group_name" {
 output "alb_dns_name" {
   description = "Public DNS name assigned to the application load balancer."
   value       = aws_lb.app.dns_name
+  sensitive   = true
 }
 
 output "application_url" {
   description = "Temporary plaintext HTTP endpoint for the assessment."
   value       = "http://${aws_lb.app.dns_name}"
+  sensitive   = true
 }

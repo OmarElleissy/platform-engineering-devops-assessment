@@ -120,4 +120,11 @@ resource "aws_ecs_service" "app" {
     aws_lb_listener.http,
     aws_route.private_nat,
   ]
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[0-9a-f]{40}$", var.image_tag))
+      error_message = "The ECS service requires an explicit full lowercase Git SHA image tag for both desired_count 0 and 1."
+    }
+  }
 }

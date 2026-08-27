@@ -76,9 +76,11 @@ jobs:
             --skip-dirs .venv312 \
             --skip-dirs reference \
             --skip-dirs infra/.terraform \
+            --skip-dirs bootstrap/.terraform \
             --skip-files '**/*.tfstate*' \
             --skip-files '**/*.tfvars' \
             --skip-files '**/*.tfvars.json' \
+            --skip-files '**/*.tfbackend' \
             --skip-files '**/*.tfplan' \
             --skip-files '**/*.plan' \
             .
@@ -98,13 +100,19 @@ jobs:
           terraform_wrapper: false
 
       - name: Check Terraform formatting
-        run: terraform fmt -check -recursive infra
+        run: |
+          terraform fmt -check -recursive infra
+          terraform fmt -check -recursive bootstrap
 
-      - name: Initialize Terraform without a backend
-        run: terraform -chdir=infra init -backend=false -input=false
+      - name: Initialize Terraform roots without backends
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=bootstrap init -backend=false -input=false
 
-      - name: Validate Terraform
-        run: terraform -chdir=infra validate -no-color
+      - name: Validate Terraform roots
+        run: |
+          terraform -chdir=infra validate -no-color
+          terraform -chdir=bootstrap validate -no-color
 
   kubernetes-validation:
     name: Kubernetes rendering, schema, and policy validation

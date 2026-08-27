@@ -7,7 +7,7 @@ allowed_http_cidrs = ["0.0.0.0/0"]
 
 # Keep zero until the matching immutable image tag has been pushed to ECR.
 desired_count = 0
-image_tag     = "replace-with-git-sha"
+image_tag     = "0123456789abcdef0123456789abcdef01234567"
 
 additional_tags = {
   Owner = "assessment-candidate"

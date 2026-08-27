@@ -119,17 +119,12 @@ variable "task_memory" {
 }
 
 variable "image_tag" {
-  description = "Immutable ECR image tag used by the task definition."
+  description = "Explicit immutable ECR image tag, equal to the full lowercase 40-character Git commit SHA."
   type        = string
-  default     = "bootstrap"
 
   validation {
-    condition = (
-      lower(var.image_tag) != "latest" &&
-      length(var.image_tag) <= 128 &&
-      can(regex("^[A-Za-z0-9_][A-Za-z0-9._-]*$", var.image_tag))
-    )
-    error_message = "image_tag must be a valid non-latest Docker tag of at most 128 characters."
+    condition     = can(regex("^[0-9a-f]{40}$", var.image_tag))
+    error_message = "image_tag must be the full lowercase 40-character hexadecimal Git commit SHA; bootstrap, latest, branch names, and short SHAs are forbidden."
   }
 }
 

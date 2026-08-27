@@ -1,8 +1,9 @@
 # Phase 2A AWS infrastructure
 
 This directory defines the smallest approved AWS platform for the existing
-containerized FastAPI service. Terraform uses local state for this initial
-single-user assessment.
+containerized FastAPI service. It now declares a partial S3 backend for future
+Phase 3C delivery, but the current destroyed/empty local state has not been
+migrated and the backend bucket has not been created.
 
 ## Lifecycle status
 
@@ -72,7 +73,9 @@ Single NAT Gateway -> Internet Gateway -> AWS public APIs
 - The CloudWatch log group retains application logs for seven days.
 
 No database, HTTPS certificate, domain, WAF, autoscaling, service discovery,
-secrets, ECS Exec, VPC endpoint, flow log, alarm, or remote backend is created.
+secrets, ECS Exec, VPC endpoint, flow log, or alarm is created by this root.
+The remote-state bucket and delivery identity belong to the separate retained
+`bootstrap/` root.
 
 ## Inputs
 
@@ -83,32 +86,36 @@ All inputs have assessment-safe defaults. Important inputs are:
 | `aws_region` | `eu-central-1` | Approved deployment region |
 | `availability_zones` | `eu-central-1a`, `eu-central-1b` | Subnet placement |
 | `allowed_http_cidrs` | `0.0.0.0/0` | Sources allowed to use HTTP/80 |
-| `image_tag` | `bootstrap` | Immutable ECR tag in the task definition |
+| `image_tag` | Required | Full lowercase 40-character Git SHA used by the task definition |
 | `desired_count` | `0` | Task count before the first image push |
 | `additional_tags` | `{}` | Extra non-sensitive resource tags |
 
 The VPC and subnet CIDRs, port 8080, task size, health path, and log retention
 are also variables, but validation pins them to the approved design.
 
-Never put credentials, tokens, account identifiers, or sensitive application
-values in variable files.
+`image_tag` is required even when `desired_count = 0`; `bootstrap`, `latest`,
+branch names, and short SHAs are rejected. Never put credentials, tokens,
+account identifiers, or sensitive application values in variable files.
 
 ## Outputs
 
 Terraform returns the region, VPC and subnet IDs, ECR repository name and URL,
 ECS cluster and service names, current task-definition ARN, CloudWatch log-group
-name, ALB DNS name, and temporary HTTP application URL.
+name, ALB DNS name, and temporary HTTP application URL. Account-derived URLs,
+ARNs, DNS names, URLs, and resource IDs are marked sensitive. This suppresses
+ordinary display but does not remove those values from Terraform state;
+workflows must not run unfiltered `terraform output` or publish state/plans.
 
 ## Local validation
 
-Initialization downloads the provider and creates `.terraform.lock.hcl`; it
-does not create AWS resources. The lock file should be committed, while the
-`.terraform` directory must remain ignored.
+Offline initialization downloads the provider and creates `.terraform.lock.hcl`;
+it does not create AWS resources or configure the declared backend. The lock
+file should be committed, while the `.terraform` directory must remain ignored.
 
 ```bash
 terraform fmt -recursive infra
 terraform fmt -check -recursive infra
-terraform -chdir=infra init
+terraform -chdir=infra init -backend=false -input=false -reconfigure
 terraform -chdir=infra validate -no-color
 trivy config --misconfig-scanners terraform --skip-check-update \
   --severity HIGH,CRITICAL --exit-code 1 --quiet infra
@@ -154,15 +161,16 @@ AWS_PROFILE=assessment-admin terraform -chdir=infra plan \
   -var='desired_count=0'
 ```
 
-## Image bootstrap
+## Image deployment
 
-1. Apply the infrastructure with `desired_count = 0`. The ALB has no healthy
-   targets at this stage, so an HTTP 503 is expected.
+1. Select the exact full Git commit SHA and apply the infrastructure with that
+   `image_tag` and `desired_count = 0`. The ALB has no healthy targets at this
+   stage, so an HTTP 503 is expected.
 2. Read `ecr_repository_url` from the Terraform outputs.
 3. Build and validate the application image for `linux/amd64`.
 4. Authenticate to ECR, tag the image with a unique Git commit identifier, and
    push it. Do not use `latest`, and do not reuse an immutable tag.
-5. Set `image_tag` to that exact tag and change `desired_count` to `1`.
+5. Keep `image_tag` set to that exact full SHA and change `desired_count` to `1`.
 6. Apply again, wait for the ECS deployment and ALB target to become healthy,
    then verify `/health` through `application_url`.
 
@@ -172,6 +180,13 @@ deployment has no known-good running revision, so rollback becomes genuinely
 useful only after that deployment completes successfully.
 
 ## Apply and cleanup commands
+
+The commands below are not ready for use until the separate bootstrap has been
+applied and the local application state has passed the documented manual remote
+state migration checkpoint. The future workflow will supply the private bucket
+name through a temporary `.tfbackend` file under `${RUNNER_TEMP}`. See the
+[Phase 3C design](../docs/phase3c-continuous-delivery.md). State, backend files,
+and plans must never be public artifacts.
 
 These commands document the workflow for a future deliberate recreation.
 Review a fresh plan before every apply; do not reuse a stale saved plan:
@@ -195,9 +210,12 @@ safety control.
 
 ## Limitations and tradeoffs
 
-- Local state has no shared locking, centralized backup, or team access. Loss
-  of the state file makes safe updates and cleanup difficult. Migrate to a
-  protected remote backend before this becomes a shared or durable workload.
+- The partial S3 backend is not operational until bootstrap and the separate
+  manual migration checkpoint complete. Until then, the ignored local state
+  remains the authoritative state and must be privately backed up.
+- S3 native lock files and GitHub concurrency will provide separate protection:
+  the former protects state operations, while the latter serializes workflow
+  scheduling. S3 versioning is the planned state recovery mechanism.
 - The NAT Gateway, ALB, public IPv4 addresses, running Fargate task, ECR image
   storage, CloudWatch log ingestion/storage, and data transfer can incur cost.
   NAT and ALB hourly charges begin even while the service desired count is zero.

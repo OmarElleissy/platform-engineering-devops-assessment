@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars only for a deliberate bootstrap operation. Runtime
+# values are private and ignored; never commit account data or credentials.
+
+aws_region       = "eu-central-1"
+state_bucket_name = "replace-with-globally-unique-state-bucket"
+state_key         = "platform-assessment/terraform.tfstate"
+
+github_owner         = "assessment-owner"
+github_owner_id      = "123456"
+github_repository    = "platform-engineering-devops-assessment"
+github_repository_id = "789012"
+github_environment   = "assessment-aws"
+github_oidc_subject  = "repo:assessment-owner@123456/platform-engineering-devops-assessment@789012:environment:assessment-aws"
+
+create_github_oidc_provider = true
+existing_oidc_provider_arn  = null
+cd_role_name                = "platform-assessment-cd-lifecycle"
+
+owner_tag   = "assessment-candidate"
+project_tag = "platform-assessment"

@@ -47,6 +47,14 @@ the sanitized
 [Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
 and the [Kubernetes reference deployment](k8s/README.md).
 
+**Phase 3C Checkpoint 1 repository foundations are implemented locally but have
+not been executed.** A separate local-state bootstrap root now defines the
+future versioned S3 backend, GitHub OIDC provider integration, and one scoped CD
+lifecycle role; the application root declares a partial S3 backend. No AWS or
+GitHub OIDC configuration has occurred, application state has not been
+migrated, and deploy/destroy workflows remain unimplemented. See the
+[Phase 3C continuous-delivery design](docs/phase3c-continuous-delivery.md).
+
 **There is currently no live endpoint.** The environment can be recreated from
 the committed application and Terraform source in approximately 15–25 minutes
 under normal AWS and network conditions. This is a planning estimate, not a
@@ -54,7 +62,8 @@ measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- Gated registry publishing and cloud deployment (CD)
+- Gated registry publishing and cloud deploy/destroy workflows (Phase 3C
+  Checkpoint 2)
 - Multi-cloud network design and diagram
 - Observability/SRE design
 
@@ -90,8 +99,9 @@ not call AWS APIs.
 
 The task runs with a fixed non-root UID/GID, a read-only root filesystem, and
 all Linux capabilities dropped. The temporary listener is HTTP-only with no
-domain, ACM certificate, or TLS. Terraform state is local, so it lacks shared
-locking and centralized recovery. The NAT Gateway, load balancer, public IPv4
+domain, ACM certificate, or TLS. The application now declares a partial S3
+backend, but the destroyed/empty local state has not yet been migrated and no
+remote backend has been created. The NAT Gateway, load balancer, public IPv4
 addresses, Fargate runtime, image storage, logs, and data transfer can generate
 cost. The Phase 2 environment was deliberately destroyed after validation to
 limit charges and exercise the infrastructure lifecycle, subject to the ECR
@@ -103,8 +113,10 @@ security-scan findings, bootstrap sequence, and cleanup guidance.
 ## Repository structure
 
 The public repository preserves the Phase 1 files, adds the Phase 2A Terraform
-configuration under `infra/`, defines Phase 3A CI under `.github/workflows/`,
-and includes Phase 3B Kubernetes reference manifests under `k8s/`:
+configuration under `infra/`, defines Phase 3A/3B CI under
+`.github/workflows/`, includes Phase 3B Kubernetes reference manifests under
+`k8s/`, and adds Phase 3C repository-only CD foundations under `bootstrap/` and
+`docs/`:
 
 ```text
 .
@@ -114,6 +126,20 @@ and includes Phase 3B Kubernetes reference manifests under `k8s/`:
 ├── app/
 │   ├── __init__.py
 │   └── main.py
+├── bootstrap/
+│   ├── .terraform.lock.hcl
+│   ├── README.md
+│   ├── iam.tf
+│   ├── locals.tf
+│   ├── oidc.tf
+│   ├── outputs.tf
+│   ├── providers.tf
+│   ├── state-storage.tf
+│   ├── terraform.tfvars.example
+│   ├── variables.tf
+│   └── versions.tf
+├── docs/
+│   └── phase3c-continuous-delivery.md
 ├── evidence/
 │   ├── phase2-aws-deployment-and-cleanup.md
 │   ├── phase3a-ci-validation.md
@@ -129,6 +155,7 @@ and includes Phase 3B Kubernetes reference manifests under `k8s/`:
 │   ├── .terraform.lock.hcl
 │   ├── README.md
 │   ├── alb.tf
+│   ├── backend.tf
 │   ├── ecr.tf
 │   ├── ecs.tf
 │   ├── iam.tf
@@ -220,8 +247,8 @@ not recorded. See the
 The workflow uses Python 3.12 and caches pip downloads against both requirements
 files. It installs the runtime and development dependencies, runs `pip check`,
 Ruff, and pytest, and separately checks Terraform formatting before initializing
-without a backend and validating the configuration. It never runs a Terraform
-plan or any state-changing Terraform command.
+both `infra/` and `bootstrap/` without backends and validating them. It never
+runs a Terraform plan or any state-changing Terraform command.
 
 A separate Kubernetes validation job downloads checksum-verified, exactly
 pinned kubectl and Kubeconform releases. It renders the Kustomization without a
@@ -445,7 +472,8 @@ operational support outweighs image minimization.
   cluster and no Kubernetes endpoint exists.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
-- Terraform state is local rather than stored in a protected remote backend.
+- The application has a partial protected-backend declaration, but its local
+  state has not been migrated and the bootstrap resources do not exist yet.
 - The planned design uses one NAT Gateway and one running task, so it does not
   claim multi-AZ application availability.
 - The health endpoint validates process health only; it does not check external
@@ -460,12 +488,14 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Implement separately gated CD for registry publishing and cloud deployment.
+- Implement and execute the separately gated Phase 3C deploy/destroy workflows
+  after manual bootstrap and state migration.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Test admission and the reference deployment on a disposable cluster before
   any promotion.
 - Add production-grade networking and observability controls, including VPC
-  endpoints, flow logs, alarms, and a protected remote Terraform backend.
+  endpoints, flow logs, and alarms; consider customer-managed KMS encryption
+  for the Terraform backend.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure
   phase.
 
