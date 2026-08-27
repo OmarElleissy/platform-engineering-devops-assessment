@@ -29,6 +29,12 @@ image was rebuilt without old build cache, and the remediated image passed the
 recorded High/Critical blocking scan with zero High and zero Critical findings.
 No suppression rule was used.
 
+**Phase 3A continuous integration is implemented locally but has not yet been
+executed on GitHub.** This CI-only workflow performs runner-local quality,
+security, Terraform, image, and hardened runtime checks without AWS or registry
+authentication, image pushes, or deployment steps. Its status must remain
+unverified until a GitHub Actions run completes.
+
 **There is currently no live endpoint.** The environment can be recreated from
 the committed application and Terraform source in approximately 15–25 minutes
 under normal AWS and network conditions. This is a planning estimate, not a
@@ -36,7 +42,8 @@ measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- CI/CD
+- An executed GitHub Actions CI result
+- Gated registry publishing and cloud deployment (CD)
 - Kubernetes reference manifests
 - Observability design
 
@@ -84,11 +91,14 @@ security-scan findings, bootstrap sequence, and cleanup guidance.
 
 ## Repository structure
 
-The public repository preserves the Phase 1 files and adds the Phase 2A
-Terraform configuration under `infra/`:
+The public repository preserves the Phase 1 files, adds the Phase 2A Terraform
+configuration under `infra/`, and defines Phase 3A CI under `.github/workflows/`:
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── app/
 │   ├── __init__.py
 │   └── main.py
@@ -162,6 +172,44 @@ ruff check .
 python -m pytest
 python -m pip check
 ```
+
+## Continuous integration (Phase 3A)
+
+The [CI workflow](.github/workflows/ci.yml) runs for pushes to `main` and
+`feature/**`, for pull requests, and by manual dispatch. Concurrency control
+cancels an older in-progress run for the same branch or pull request when a
+newer commit arrives.
+
+The workflow uses Python 3.12 and caches pip downloads against both requirements
+files. It installs the runtime and development dependencies, runs `pip check`,
+Ruff, and pytest, and separately checks Terraform formatting before initializing
+without a backend and validating the configuration. It never runs a Terraform
+plan or any state-changing Terraform command.
+
+Trivy scans the checked-out repository for dependency vulnerabilities and
+secrets while explicitly excluding ignored local material, Terraform state,
+runtime variable files, plans, VCS data, and local tool directories. This scan
+does not enable Terraform misconfiguration checks, so accepted Phase 2
+architecture tradeoffs do not become unrelated SCA blockers. High or Critical
+findings fail the job.
+
+After both quality jobs succeed, Buildx builds `linux/amd64`, tags the local
+image with the immutable Git commit SHA, uses GitHub Actions layer caching, and
+loads the image into the runner without pushing it. Trivy scans that exact image
+and blocks on every High or Critical vulnerability; no ignore file or
+`--ignore-unfixed` exception is used. The same image then runs with a read-only
+root filesystem, all Linux capabilities dropped, `no-new-privileges`, and port
+`8080` bound only to runner loopback. A bounded retry verifies Docker health,
+HTTP `200`, the exact `{"status":"healthy"}` response, and runtime UID/GID
+`10001:10001`. Cleanup runs even when validation fails.
+
+The workflow grants only `contents: read` and receives no AWS or registry
+credentials because CI is intentionally isolated from delivery. Registry push
+and cloud deployment remain future gated CD work. The previous Phase 2 AWS
+deployment was performed manually and is not evidence of an executed CI/CD
+deployment. Stable official action release tags are used for this assessment;
+pinning every action to a reviewed full commit SHA is a recommended production
+supply-chain enhancement.
 
 ## Build the Docker image
 
@@ -344,7 +392,8 @@ operational support outweighs image minimization.
 - The bootstrap completion time and summary, exact destruction-completion time,
   deployed image tag, billable cost, and several post-destroy inventory checks
   were not retained in the available sanitized evidence.
-- CI/CD is not implemented yet.
+- Phase 3A CI is implemented but has not yet produced a GitHub Actions run;
+  registry publishing and gated cloud deployment are not implemented.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
@@ -362,7 +411,9 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Implement CI/CD with automated tests, linting, builds, and security gates.
+- Execute and review Phase 3A in GitHub Actions, then retain sanitized evidence.
+- Implement separately gated CD for registry publishing and cloud deployment.
+- Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Add pending Kubernetes reference manifests.
 - Add production-grade networking and observability controls, including VPC
   endpoints, flow logs, alarms, and a protected remote Terraform backend.
