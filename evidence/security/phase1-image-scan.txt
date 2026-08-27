@@ -1,0 +1,148 @@
+PHASE 1 TRIVY IMAGE SCAN EVIDENCE
+=================================
+
+Evidence finalized (UTC): 2026-08-25T22:39:51Z
+Git commit: 0cf2f51f1aa03d7fb4040bb798e6e0988f8f9149
+Image tag: platform-assessment:phase1-evidence
+Image ID: sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f
+Docker inspect .Size: 23377843 bytes
+Docker image-list display size: 95.6MB
+Trivy version: 0.74.0
+Trivy vulnerability DB version: 2
+Trivy vulnerability DB updated (UTC): 2026-08-25T06:59:59.307495517Z
+Trivy vulnerability DB downloaded (UTC): 2026-08-25T09:40:00.618566587Z
+
+POINT-IN-TIME STATEMENT
+This evidence applies only to the commit, image ID, tool version, and database
+timestamps above. It is a point-in-time result and not a guarantee for later
+commits, rebuilt images, or future vulnerability intelligence.
+
+SANITIZATION
+No username, absolute local path, host IP address, credential, token, AWS
+account ID, or private repository information appeared in the successful scan
+output. Trivy log timestamps below use the scan host's UTC+03 offset; the
+evidence timestamp and database timestamps above are normalized to UTC.
+
+COMPLETE IMAGE SCAN
+-------------------
+
+COMMAND
+trivy image --scanners vuln,secret --no-progress --format table platform-assessment:phase1-evidence
+
+ACTUAL SANITIZED OUTPUT
+2026-08-26T01:32:33+03:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-08-26T01:32:33+03:00	INFO	[secret] Secret scanning is enabled
+2026-08-26T01:32:33+03:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-08-26T01:32:33+03:00	INFO	[secret] Please see https://trivy.dev/docs/v0.74/guide/scanner/secret#recommendation for faster secret detection
+2026-08-26T01:32:35+03:00	INFO	[python] Licenses acquired from one or more METADATA files may be subject to additional terms. Use `--debug` flag to see all affected packages.
+2026-08-26T01:32:35+03:00	WARN	Third-party SBOM may lead to inaccurate vulnerability detection
+2026-08-26T01:32:35+03:00	WARN	Recommend using Trivy to generate SBOMs
+2026-08-26T01:32:35+03:00	INFO	Detected OS	family="alpine" version="3.24.1"
+2026-08-26T01:32:35+03:00	WARN	This OS version is not on the EOL list	family="alpine" version="3.24"
+2026-08-26T01:32:35+03:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.24" repository="3.24" pkg_num=30
+2026-08-26T01:32:35+03:00	INFO	Number of language-specific files	num=1
+2026-08-26T01:32:35+03:00	INFO	[python-pkg] Detecting vulnerabilities...
+
+Report Summary
+
+┌──────────────────────────────────────────────────────────────────────────────────┬────────────┬─────────────────┬─────────┐
+│                                      Target                                      │    Type    │ Vulnerabilities │ Secrets │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ platform-assessment:phase1-evidence (alpine 3.24.1)                              │   alpine   │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/annotated_doc-0.0.5.dist-info/METADATA    │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/annotated_types-0.8.0.dist-info/METADATA  │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/anyio-4.14.2.dist-info/METADATA           │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/click-8.4.2.dist-info/METADATA            │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/fastapi-0.141.1.dist-info/METADATA        │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/h11-0.16.0.dist-info/METADATA             │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/idna-3.19.dist-info/METADATA              │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/pydantic-2.13.4.dist-info/METADATA        │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/pydantic_core-2.46.4.dist-info/METADATA   │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/starlette-1.6.0.dist-info/METADATA        │ python-pkg │        0        │    -    │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/typing_extensions-4.16.0.dist-info/METAD- │ python-pkg │        0        │    -    │
+│ ATA                                                                              │            │                 │         │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/typing_inspection-0.4.4.dist-info/METADA- │ python-pkg │        0        │    -    │
+│ TA                                                                               │            │                 │         │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┼─────────┤
+│ usr/local/lib/python3.14/site-packages/uvicorn-0.52.3.dist-info/METADATA         │ python-pkg │        0        │    -    │
+└──────────────────────────────────────────────────────────────────────────────────┴────────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+EXIT CODE: 0
+
+BLOCKING HIGH/CRITICAL IMAGE SCAN
+---------------------------------
+
+COMMAND
+trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --no-progress --format table platform-assessment:phase1-evidence
+
+ACTUAL SANITIZED OUTPUT
+2026-08-26T01:32:48+03:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-08-26T01:32:49+03:00	INFO	[python] Licenses acquired from one or more METADATA files may be subject to additional terms. Use `--debug` flag to see all affected packages.
+2026-08-26T01:32:49+03:00	WARN	Third-party SBOM may lead to inaccurate vulnerability detection
+2026-08-26T01:32:49+03:00	WARN	Recommend using Trivy to generate SBOMs
+2026-08-26T01:32:49+03:00	INFO	Detected OS	family="alpine" version="3.24.1"
+2026-08-26T01:32:49+03:00	WARN	This OS version is not on the EOL list	family="alpine" version="3.24"
+2026-08-26T01:32:49+03:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.24" repository="3.24" pkg_num=30
+2026-08-26T01:32:49+03:00	INFO	Number of language-specific files	num=1
+2026-08-26T01:32:49+03:00	INFO	[python-pkg] Detecting vulnerabilities...
+
+Report Summary
+
+┌──────────────────────────────────────────────────────────────────────────────────┬────────────┬─────────────────┐
+│                                      Target                                      │    Type    │ Vulnerabilities │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ platform-assessment:phase1-evidence (alpine 3.24.1)                              │   alpine   │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/annotated_doc-0.0.5.dist-info/METADATA    │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/annotated_types-0.8.0.dist-info/METADATA  │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/anyio-4.14.2.dist-info/METADATA           │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/click-8.4.2.dist-info/METADATA            │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/fastapi-0.141.1.dist-info/METADATA        │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/h11-0.16.0.dist-info/METADATA             │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/idna-3.19.dist-info/METADATA              │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/pydantic-2.13.4.dist-info/METADATA        │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/pydantic_core-2.46.4.dist-info/METADATA   │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/starlette-1.6.0.dist-info/METADATA        │ python-pkg │        0        │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/typing_extensions-4.16.0.dist-info/METAD- │ python-pkg │        0        │
+│ ATA                                                                              │            │                 │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/typing_inspection-0.4.4.dist-info/METADA- │ python-pkg │        0        │
+│ TA                                                                               │            │                 │
+├──────────────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+│ usr/local/lib/python3.14/site-packages/uvicorn-0.52.3.dist-info/METADATA         │ python-pkg │        0        │
+└──────────────────────────────────────────────────────────────────────────────────┴────────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+EXIT CODE: 0
+
+RESULT
+PASS. The complete image scan reported zero OS-package and Python-package
+vulnerabilities and zero secrets. The blocking High/Critical scan reported zero
+findings and exited 0, so the configured gate passed at this point in time.

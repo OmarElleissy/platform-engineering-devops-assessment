@@ -1,0 +1,364 @@
+name: Destroy application infrastructure
+
+"on":
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type DESTROY platform-assessment"
+        required: true
+        type: string
+      expected_sha:
+        description: "Full 40-character Git SHA currently deployed"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: platform-assessment-aws-lifecycle
+  queue: max
+
+env:
+  TERRAFORM_VERSION: "1.15.9"
+
+jobs:
+  preflight:
+    name: Validate manual destruction request
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Refuse non-main, unconfirmed, or ambiguous destruction
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${CONFIRMATION}" = "DESTROY platform-assessment"
+          [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+  destroy:
+    name: Gated destruction lifecycle
+    needs: preflight
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+    environment: assessment-aws
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EXPECTED_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      EXPECTED_DEPLOYED_SHA: ${{ inputs.expected_sha }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Check out main workflow commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify main checkout and expected deployed SHA
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${CONFIRMATION}" = "DESTROY platform-assessment"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          [[ "${EXPECTED_DEPLOYED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialize private runner paths and environment inputs
+        run: |
+          set -euo pipefail
+          test "${AWS_REGION}" = "eu-central-1"
+          [[ "${EXPECTED_AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
+          [[ "${TF_STATE_BUCKET}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]
+          [[ "${AWS_ROLE_ARN}" =~ ^arn:[a-z0-9-]+:iam::${EXPECTED_AWS_ACCOUNT_ID}:role/[A-Za-z0-9+=,.@_-]+$ ]]
+          echo "::add-mask::${EXPECTED_AWS_ACCOUNT_ID}"
+          echo "::add-mask::${TF_STATE_BUCKET}"
+          echo "::add-mask::${AWS_ROLE_ARN}"
+          echo "::add-mask::${EXPECTED_DEPLOYED_SHA}"
+
+          cd_temp="${RUNNER_TEMP}/platform-assessment-cd"
+          mkdir -p "${cd_temp}/docker" "${cd_temp}/terraform-data" "${cd_temp}/ecr-batches"
+          chmod 0700 "${cd_temp}" "${cd_temp}/docker" "${cd_temp}/terraform-data"
+          backend_file="${cd_temp}/application.tfbackend"
+          printf 'bucket = "%s"\n' "${TF_STATE_BUCKET}" > "${backend_file}"
+          chmod 0600 "${backend_file}"
+          {
+            echo "CD_TEMP=${cd_temp}"
+            echo "DOCKER_CONFIG=${cd_temp}/docker"
+            echo "TF_DATA_DIR=${cd_temp}/terraform-data"
+            echo "BACKEND_FILE=${backend_file}"
+            echo "TF_VAR_aws_region=${AWS_REGION}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Obtain bounded lifecycle credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: destroy-inspect-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Verify expected AWS identity privately
+        run: |
+          set -euo pipefail
+          identity_file="${CD_TEMP}/sts-identity.json"
+          aws sts get-caller-identity --output json > "${identity_file}" 2> "${CD_TEMP}/sts-error.log"
+          python - "${identity_file}" "${EXPECTED_AWS_ACCOUNT_ID}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              identity = json.load(stream)
+          if identity.get("Account") != sys.argv[2]:
+              raise SystemExit("unexpected AWS account")
+          PY
+          echo "AWS identity check: expected account matched"
+
+      - name: Initialize backend and prove current state privately
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra init \
+            -input=false \
+            -reconfigure \
+            -backend-config="${BACKEND_FILE}" \
+            > "${CD_TEMP}/terraform-init.log" 2>&1
+          terraform -chdir=infra state list > "${CD_TEMP}/state-before.txt" 2> "${CD_TEMP}/state-list-error.log"
+          test -s "${CD_TEMP}/state-before.txt"
+          terraform -chdir=infra show -json > "${CD_TEMP}/state-before.json" 2> "${CD_TEMP}/state-show-error.log"
+          terraform -chdir=infra output -json > "${CD_TEMP}/terraform-outputs.json" 2> "${CD_TEMP}/output-error.log"
+          python scripts/cd/private_values.py \
+            --kind outputs \
+            --json "${CD_TEMP}/terraform-outputs.json" \
+            --github-env "${GITHUB_ENV}"
+          python scripts/cd/private_values.py \
+            --kind state \
+            --json "${CD_TEMP}/state-before.json" \
+            --expected-sha "${EXPECTED_DEPLOYED_SHA}" \
+            --github-env "${GITHUB_ENV}"
+          echo "Remote application state: readable and identity-checked"
+
+      - name: Set exact current Terraform values for scale-zero
+        run: |
+          set -euo pipefail
+          test "${CURRENT_IMAGE_SHA}" = "${EXPECTED_DEPLOYED_SHA}"
+          [[ "${CURRENT_ALLOWED_CIDR}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/32$ ]]
+          {
+            echo "TF_VAR_image_tag=${CURRENT_IMAGE_SHA}"
+            echo "TF_VAR_desired_count=0"
+            printf 'TF_VAR_allowed_http_cidrs=["%s"]\n' "${CURRENT_ALLOWED_CIDR}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Create and validate scale-zero saved plan
+        run: |
+          set -euo pipefail
+          export TF_VAR_image_tag="${CURRENT_IMAGE_SHA}"
+          export TF_VAR_desired_count=0
+          export TF_VAR_allowed_http_cidrs="[\"${CURRENT_ALLOWED_CIDR}\"]"
+          scale_plan="${CD_TEMP}/scale-zero.tfplan"
+          scale_json="${CD_TEMP}/scale-zero-plan.json"
+          terraform -chdir=infra plan \
+            -input=false \
+            -no-color \
+            -out="${scale_plan}" \
+            > "${CD_TEMP}/scale-zero-plan.log" 2>&1
+          terraform -chdir=infra show -json "${scale_plan}" > "${scale_json}"
+          python scripts/cd/terraform_plan_policy.py \
+            --mode scale-zero \
+            --plan-json "${scale_json}" \
+            --sha "${EXPECTED_DEPLOYED_SHA}" \
+            --cidr "${CURRENT_ALLOWED_CIDR}"
+          echo "SCALE_ZERO_PLAN=${scale_plan}" >> "${GITHUB_ENV}"
+
+      - name: Apply exact scale-zero saved plan privately
+        run: |
+          set -euo pipefail
+          apply_log="${CD_TEMP}/scale-zero-apply.log"
+          if ! terraform -chdir=infra apply \
+            -input=false \
+            -no-color \
+            -auto-approve \
+            "${SCALE_ZERO_PLAN}" > "${apply_log}" 2>&1; then
+            echo "::error::Scale-zero apply failed; destruction stopped"
+            exit 1
+          fi
+          python scripts/cd/sanitize_apply.py --apply-log "${apply_log}"
+
+      - name: Wait for zero running and pending tasks
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          tasks_zero=false
+          for attempt in $(seq 1 40); do
+            aws ecs describe-services \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${ECS_SERVICE_NAME}" \
+              --output json > "${CD_TEMP}/scale-service.json" 2> "${CD_TEMP}/scale-service-error.log"
+            if python scripts/cd/aws_policy.py \
+              --mode tasks-zero \
+              --service-json "${CD_TEMP}/scale-service.json" \
+              --quiet; then
+              tasks_zero=true
+              break
+            fi
+            sleep 15
+          done
+          test "${tasks_zero}" = true
+          python scripts/cd/aws_policy.py \
+            --mode tasks-zero \
+            --service-json "${CD_TEMP}/scale-service.json"
+
+      - name: Validate managed ECR inventory and create digest batches
+        id: ecr-inventory
+        run: |
+          set -euo pipefail
+          test "${ECR_REPOSITORY_NAME}" = "platform-assessment-app"
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --output json > "${CD_TEMP}/ecr-inventory.json" 2> "${CD_TEMP}/ecr-inventory-error.log"
+          python scripts/cd/ecr_policy.py \
+            --mode inventory \
+            --json "${CD_TEMP}/ecr-inventory.json" \
+            --batch-dir "${CD_TEMP}/ecr-batches" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Delete only validated images by digest
+        run: |
+          set -euo pipefail
+          deleted_batches=0
+          for batch in "${CD_TEMP}/ecr-batches"/batch-*.json; do
+            if [ ! -e "${batch}" ]; then
+              continue
+            fi
+            deleted_batches=$((deleted_batches + 1))
+            aws ecr batch-delete-image \
+              --repository-name "${ECR_REPOSITORY_NAME}" \
+              --image-ids "file://${batch}" \
+              --output json > "${CD_TEMP}/ecr-delete-${deleted_batches}.json" \
+              2> "${CD_TEMP}/ecr-delete-error.log"
+          done
+          test "${deleted_batches}" = "${{ steps.ecr-inventory.outputs.BATCH_COUNT }}"
+          echo "ECR digest deletion batch count: ${deleted_batches}"
+
+      - name: Confirm managed ECR repository is empty
+        run: |
+          set -euo pipefail
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --output json > "${CD_TEMP}/ecr-empty.json" 2> "${CD_TEMP}/ecr-empty-error.log"
+          python scripts/cd/ecr_policy.py --mode empty --json "${CD_TEMP}/ecr-empty.json"
+
+      - name: Refresh OIDC credentials for Terraform destruction
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: destroy-terraform-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Create and validate deletion-only saved destroy plan
+        run: |
+          set -euo pipefail
+          destroy_plan="${CD_TEMP}/destroy.tfplan"
+          destroy_json="${CD_TEMP}/destroy-plan.json"
+          terraform -chdir=infra plan \
+            -destroy \
+            -input=false \
+            -no-color \
+            -out="${destroy_plan}" \
+            > "${CD_TEMP}/destroy-plan.log" 2>&1
+          terraform -chdir=infra show -json "${destroy_plan}" > "${destroy_json}"
+          python scripts/cd/terraform_plan_policy.py \
+            --mode destroy \
+            --plan-json "${destroy_json}"
+          echo "DESTROY_PLAN=${destroy_plan}" >> "${GITHUB_ENV}"
+
+      - name: Apply exact saved destroy plan privately
+        run: |
+          set -euo pipefail
+          apply_log="${CD_TEMP}/destroy-apply.log"
+          if ! terraform -chdir=infra apply \
+            -input=false \
+            -no-color \
+            -auto-approve \
+            "${DESTROY_PLAN}" > "${apply_log}" 2>&1; then
+            echo "::error::Terraform destruction failed; cleanup may be incomplete"
+            exit 1
+          fi
+          python scripts/cd/sanitize_apply.py --apply-log "${apply_log}"
+
+      - name: Capture independent cleanup checks privately
+        run: |
+          set -euo pipefail
+          if ! aws ecr describe-repositories \
+              --repository-names "${ECR_REPOSITORY_NAME}" \
+              --output json > "${CD_TEMP}/repositories-after.json" \
+              2> "${CD_TEMP}/repositories-error.log"; then
+            if ! grep -q 'RepositoryNotFoundException' "${CD_TEMP}/repositories-error.log"; then
+              echo "::error::The ECR cleanup check failed"
+              exit 1
+            fi
+            printf '{"repositories":[]}\n' > "${CD_TEMP}/repositories-after.json"
+          fi
+          aws elbv2 describe-load-balancers \
+            --output json > "${CD_TEMP}/load-balancers-after.json" 2> "${CD_TEMP}/load-balancers-error.log"
+          aws ecs describe-clusters \
+            --clusters "${ECS_CLUSTER_NAME}" \
+            --output json > "${CD_TEMP}/clusters-after.json" 2> "${CD_TEMP}/clusters-error.log"
+          aws ec2 describe-nat-gateways \
+            --filter Name=tag:Project,Values=platform-assessment \
+            --output json > "${CD_TEMP}/nat-gateways-after.json" 2> "${CD_TEMP}/nat-gateways-error.log"
+          aws ec2 describe-addresses \
+            --filters Name=tag:Project,Values=platform-assessment \
+            --output json > "${CD_TEMP}/addresses-after.json" 2> "${CD_TEMP}/addresses-error.log"
+          terraform -chdir=infra state list > "${CD_TEMP}/state-after.txt" 2> "${CD_TEMP}/state-after-error.log"
+
+      - name: Print whitelisted cleanup validation summary
+        run: |
+          set -euo pipefail
+          python scripts/cd/aws_policy.py \
+            --mode cleanup \
+            --repositories-json "${CD_TEMP}/repositories-after.json" \
+            --load-balancers-json "${CD_TEMP}/load-balancers-after.json" \
+            --clusters-json "${CD_TEMP}/clusters-after.json" \
+            --nat-gateways-json "${CD_TEMP}/nat-gateways-after.json" \
+            --addresses-json "${CD_TEMP}/addresses-after.json" \
+            --state-list "${CD_TEMP}/state-after.txt"
+
+      - name: Report safe recovery boundary on failure
+        if: ${{ failure() }}
+        run: |
+          echo "Destruction stopped because a policy or lifecycle check failed."
+          echo "Unexpected images or resources were not broadened into deletion scope."
+          echo "Review private state and AWS reality before an approved recovery attempt."
+
+      - name: Clean temporary files
+        if: ${{ always() }}
+        run: |
+          if [ -n "${ECR_REGISTRY:-}" ]; then
+            docker logout "${ECR_REGISTRY}" > /dev/null 2>&1 || true
+          fi
+          if [ -n "${CD_TEMP:-}" ] && [[ "${CD_TEMP}" == "${RUNNER_TEMP}/"* ]]; then
+            rm -rf "${CD_TEMP}"
+          fi

@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-assessment
+  namespace: platform-assessment
+  labels:
+    app.kubernetes.io/name: platform-assessment
+    app.kubernetes.io/instance: platform-assessment
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-assessment
+      app.kubernetes.io/instance: platform-assessment
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              platform-assessment-access: "true"
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress: []

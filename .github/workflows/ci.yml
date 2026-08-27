@@ -1,0 +1,430 @@
+name: Continuous Integration
+
+"on":
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: platform-assessment
+  KUBECONFORM_VERSION: "v0.7.0"
+  KUBECTL_VERSION: "v1.36.0"
+  KUBERNETES_SCHEMA_VERSION: "1.36.0"
+  PYYAML_VERSION: "6.0.3"
+  PYTHON_VERSION: "3.12"
+  TERRAFORM_VERSION: "1.15.9"
+  TRIVY_VERSION: "v0.74.0"
+
+jobs:
+  quality-and-test:
+    name: Quality, tests, and repository security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install runtime and development dependencies
+        run: |
+          python -m pip install --requirement requirements.txt
+          python -m pip install --requirement requirements-dev.txt
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Lint with Ruff
+        run: python -m ruff check .
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+
+      - name: Scan tracked repository inputs for vulnerabilities and secrets
+        run: |
+          trivy filesystem \
+            --scanners vuln,secret \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            --format table \
+            --skip-dirs .git \
+            --skip-dirs .venv \
+            --skip-dirs .venv312 \
+            --skip-dirs reference \
+            --skip-dirs infra/.terraform \
+            --skip-dirs bootstrap/.terraform \
+            --skip-files '**/*.tfstate*' \
+            --skip-files '**/*.tfvars' \
+            --skip-files '**/*.tfvars.json' \
+            --skip-files '**/*.tfbackend' \
+            --skip-files '**/*.tfplan' \
+            --skip-files '**/*.plan' \
+            .
+
+  terraform-validation:
+    name: Terraform formatting and validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check Terraform formatting
+        run: |
+          terraform fmt -check -recursive infra
+          terraform fmt -check -recursive bootstrap
+
+      - name: Initialize Terraform roots without backends
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=bootstrap init -backend=false -input=false
+
+      - name: Validate Terraform roots
+        run: |
+          terraform -chdir=infra validate -no-color
+          terraform -chdir=bootstrap validate -no-color
+
+  kubernetes-validation:
+    name: Kubernetes rendering, schema, and policy validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pinned YAML parser
+        run: python -m pip install "PyYAML==${PYYAML_VERSION}"
+
+      - name: Validate gated CD workflow policy offline
+        run: |
+          python scripts/cd/validate_workflows.py
+          python -m unittest discover -s scripts/cd -p 'test_*.py'
+
+      - name: Install checksum-verified Kubernetes validation tools
+        run: |
+          set -euo pipefail
+
+          tool_dir="${RUNNER_TEMP}/phase3b-tools"
+          kubectl_path="${tool_dir}/kubectl"
+          kubeconform_archive="kubeconform-linux-amd64.tar.gz"
+          mkdir -p "${tool_dir}"
+
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output "${RUNNER_TEMP}/kubectl" \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output "${RUNNER_TEMP}/kubectl.sha256" \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+
+          kubectl_expected="$(tr -d '[:space:]' < "${RUNNER_TEMP}/kubectl.sha256")"
+          kubectl_actual="$(sha256sum "${RUNNER_TEMP}/kubectl" | cut -d ' ' -f 1)"
+          [[ "${kubectl_expected}" =~ ^[0-9a-f]{64}$ ]]
+          test "${kubectl_actual}" = "${kubectl_expected}"
+          install -m 0755 "${RUNNER_TEMP}/kubectl" "${kubectl_path}"
+
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output "${RUNNER_TEMP}/${kubeconform_archive}" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/${kubeconform_archive}"
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors \
+            --output "${RUNNER_TEMP}/kubeconform-CHECKSUMS" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+
+          kubeconform_expected="$(awk -v file="${kubeconform_archive}" \
+            '$2 == file {print $1}' "${RUNNER_TEMP}/kubeconform-CHECKSUMS")"
+          kubeconform_actual="$(sha256sum \
+            "${RUNNER_TEMP}/${kubeconform_archive}" | cut -d ' ' -f 1)"
+          [[ "${kubeconform_expected}" =~ ^[0-9a-f]{64}$ ]]
+          test "${kubeconform_actual}" = "${kubeconform_expected}"
+          tar --extract --gzip \
+            --file "${RUNNER_TEMP}/${kubeconform_archive}" \
+            --directory "${tool_dir}" \
+            kubeconform
+          chmod 0755 "${tool_dir}/kubeconform"
+
+          echo "${tool_dir}" >> "${GITHUB_PATH}"
+
+      - name: Verify pinned tool versions
+        run: |
+          kubectl_actual="$(kubectl version --client=true --output=json | \
+            python -c 'import json, sys; print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')"
+          test "${kubectl_actual}" = "${KUBECTL_VERSION}"
+          test "$(kubeconform -v)" = "${KUBECONFORM_VERSION}"
+
+      - name: Render Kubernetes manifests offline
+        run: kubectl kustomize k8s > "${RUNNER_TEMP}/k8s-rendered.yaml"
+
+      - name: Validate rendered Kubernetes schemas
+        run: |
+          kubeconform \
+            -strict \
+            -summary \
+            -exit-on-error \
+            -kubernetes-version "${KUBERNETES_SCHEMA_VERSION}" \
+            "${RUNNER_TEMP}/k8s-rendered.yaml"
+
+      - name: Assert rendered Kubernetes security policy
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import yaml
+
+
+          def require(condition: bool, message: str) -> None:
+              if not condition:
+                  raise SystemExit(message)
+
+
+          rendered_path = Path(os.environ["RUNNER_TEMP"]) / "k8s-rendered.yaml"
+          resources = list(yaml.safe_load_all(rendered_path.read_text()))
+          require(all(isinstance(item, dict) for item in resources), "invalid YAML document")
+          require(len(resources) == 6, f"expected 6 resources, found {len(resources)}")
+
+          expected_kinds = {
+              "Namespace",
+              "ServiceAccount",
+              "Deployment",
+              "Service",
+              "NetworkPolicy",
+              "PodDisruptionBudget",
+          }
+          kinds = [item.get("kind") for item in resources]
+          require(set(kinds) == expected_kinds, f"unexpected resource kinds: {kinds}")
+          require(len(kinds) == len(set(kinds)), "duplicate resource kind")
+          by_kind = {item["kind"]: item for item in resources}
+
+          namespace = by_kind["Namespace"]
+          require(namespace["metadata"]["name"] == "platform-assessment", "wrong namespace")
+
+          service_account = by_kind["ServiceAccount"]
+          require(
+              service_account.get("automountServiceAccountToken") is False,
+              "service-account token mounting must be disabled",
+          )
+
+          deployment = by_kind["Deployment"]
+          deployment_spec = deployment["spec"]
+          require(deployment_spec["replicas"] == 2, "deployment must have two replicas")
+          pod_spec = deployment_spec["template"]["spec"]
+          require(
+              pod_spec.get("automountServiceAccountToken") is False,
+              "pod token mounting must be disabled",
+          )
+          pod_security = pod_spec["securityContext"]
+          require(pod_security.get("runAsNonRoot") is True, "runAsNonRoot must be true")
+          require(pod_security.get("runAsUser") == 10001, "unexpected runtime UID")
+          require(pod_security.get("runAsGroup") == 10001, "unexpected runtime GID")
+          require(
+              pod_security.get("seccompProfile", {}).get("type") == "RuntimeDefault",
+              "seccomp must be RuntimeDefault",
+          )
+
+          containers = pod_spec["containers"]
+          require(len(containers) == 1, "deployment must have one container")
+          container = containers[0]
+          require(
+              any(port.get("containerPort") == 8080 for port in container["ports"]),
+              "container port 8080 is missing",
+          )
+          for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
+              probe = container.get(probe_name, {}).get("httpGet", {})
+              require(probe.get("path") == "/health", f"{probe_name} path is incorrect")
+
+          container_security = container["securityContext"]
+          require(
+              container_security.get("allowPrivilegeEscalation") is False,
+              "privilege escalation must be disabled",
+          )
+          require(container_security.get("privileged") is False, "privileged must be false")
+          require(
+              container_security.get("readOnlyRootFilesystem") is True,
+              "root filesystem must be read-only",
+          )
+          require(
+              container_security.get("capabilities", {}).get("drop") == ["ALL"],
+              "all capabilities must be dropped",
+          )
+
+          resources_config = container.get("resources", {})
+          for boundary in ("requests", "limits"):
+              values = resources_config.get(boundary, {})
+              require(values.get("cpu"), f"CPU {boundary} is missing")
+              require(values.get("memory"), f"memory {boundary} is missing")
+
+          images = [
+              item["image"]
+              for field in ("initContainers", "containers", "ephemeralContainers")
+              for item in pod_spec.get(field, [])
+          ]
+          require(
+              all(not image.endswith(":latest") for image in images),
+              "latest image tag is forbidden",
+          )
+          require(
+              images
+              == ["registry.example.invalid/platform-assessment:REPLACE_WITH_GIT_SHA"],
+              "immutable image placeholder changed unexpectedly",
+          )
+
+          service = by_kind["Service"]
+          require(service["spec"].get("type") == "ClusterIP", "service must be ClusterIP")
+          require(
+              all("nodePort" not in port for port in service["spec"]["ports"]),
+              "NodePort is forbidden",
+          )
+
+          network_policy = by_kind["NetworkPolicy"]["spec"]
+          require(
+              set(network_policy.get("policyTypes", [])) == {"Ingress", "Egress"},
+              "ingress and egress isolation are required",
+          )
+          require(network_policy.get("ingress"), "allowed ingress rule is missing")
+          require(network_policy.get("egress") == [], "egress must remain denied")
+
+          disruption_budget = by_kind["PodDisruptionBudget"]
+          require(
+              disruption_budget["spec"].get("minAvailable") == 1,
+              "PDB minAvailable must be one",
+          )
+
+          print(f"Validated {len(resources)} rendered resources: {', '.join(kinds)}")
+          PY
+
+  build-scan-and-runtime-test:
+    name: Build, scan, and hardened runtime test
+    needs:
+      - quality-and-test
+      - terraform-validation
+      - kubernetes-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONTAINER_NAME: phase3a-runtime-test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build exact commit image without pushing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha,scope=phase3a-linux-amd64
+          cache-to: type=gha,mode=max,scope=phase3a-linux-amd64
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+
+      - name: Block High and Critical image vulnerabilities
+        run: |
+          trivy image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            --format table \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
+
+      - name: Start the exact image with hardened runtime controls
+        run: |
+          docker run --detach \
+            --name "${CONTAINER_NAME}" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --publish 127.0.0.1:18080:8080 \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
+
+      - name: Wait for Docker health with a bounded retry
+        run: |
+          health_status=starting
+          for attempt in $(seq 1 40); do
+            health_status="$(docker inspect \
+              --format '{{.State.Health.Status}}' \
+              "${CONTAINER_NAME}")"
+            if [ "${health_status}" = healthy ]; then
+              break
+            fi
+            if [ "${health_status}" = unhealthy ]; then
+              docker logs "${CONTAINER_NAME}"
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "${health_status}" != healthy ]; then
+            docker logs "${CONTAINER_NAME}"
+            exit 1
+          fi
+
+      - name: Validate health response and non-root identity
+        run: |
+          response_file="${RUNNER_TEMP}/health-response.json"
+          http_status="$(curl \
+            --silent \
+            --show-error \
+            --output "${response_file}" \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:18080/health)"
+          test "${http_status}" = 200
+          test "$(cat "${response_file}")" = '{"status":"healthy"}'
+
+          runtime_identity="$(docker exec "${CONTAINER_NAME}" id -u):$(
+            docker exec "${CONTAINER_NAME}" id -g
+          )"
+          test "${runtime_identity}" = 10001:10001
+          test "$(docker inspect \
+            --format '{{.State.Health.Status}}' \
+            "${CONTAINER_NAME}")" = healthy
+
+      - name: Clean up runtime container
+        if: ${{ always() }}
+        run: docker rm --force "${CONTAINER_NAME}" 2>/dev/null || true

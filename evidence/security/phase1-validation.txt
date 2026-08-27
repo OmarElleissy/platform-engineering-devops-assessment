@@ -1,0 +1,207 @@
+PHASE 1 VALIDATION EVIDENCE
+===========================
+
+Evidence finalized (UTC): 2026-08-25T22:39:51Z
+Git commit: 0cf2f51f1aa03d7fb4040bb798e6e0988f8f9149
+Image tag: platform-assessment:phase1-evidence
+Image ID: sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f
+Docker inspect .Size: 23377843 bytes
+Docker image-list display size: 95.6MB
+Trivy version: 0.74.0
+Trivy vulnerability DB version: 2
+Trivy vulnerability DB updated (UTC): 2026-08-25T06:59:59.307495517Z
+Trivy vulnerability DB downloaded (UTC): 2026-08-25T09:40:00.618566587Z
+
+POINT-IN-TIME STATEMENT
+This evidence applies only to the commit, image ID, tool version, and database
+timestamps above. It is a point-in-time result and not a guarantee for later
+commits, rebuilt images, or future vulnerability intelligence.
+
+SANITIZATION
+The pytest project root and pip cache home were replaced with <project-root>
+and <home>. No username, host-specific IP address, credential, token, AWS
+account ID, or private repository location is retained. The universal
+127.0.0.1 loopback address is not host-identifying and is retained so the
+executed localhost command remains reproducible.
+
+COMMAND
+.venv312/bin/ruff check .
+
+ACTUAL SANITIZED OUTPUT
+All checks passed!
+
+EXIT CODE: 0
+
+COMMAND
+.venv312/bin/python -m pytest
+
+ACTUAL SANITIZED OUTPUT
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0
+rootdir: <project-root>
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.14.2
+collected 1 item
+
+tests/test_health.py .                                                   [100%]
+
+============================== 1 passed in 0.30s ===============================
+
+EXIT CODE: 0
+
+COMMAND
+.venv312/bin/python -m pip check
+
+ACTUAL SANITIZED OUTPUT
+WARNING: The directory '<home>/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+No broken requirements found.
+
+EXIT CODE: 0
+
+COMMAND
+docker build --pull --tag platform-assessment:phase1-evidence .
+
+ACTUAL SANITIZED OUTPUT
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 846B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.14.7-alpine3.24
+#2 DONE 10.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 287B done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 transferring context: 689B done
+#4 DONE 0.0s
+
+#5 [1/6] FROM docker.io/library/python:3.14.7-alpine3.24@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc
+#5 resolve docker.io/library/python:3.14.7-alpine3.24@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc 0.0s done
+#5 DONE 0.0s
+
+#6 [2/6] WORKDIR /app
+#6 CACHED
+
+#7 [3/6] RUN addgroup -S -g 10001 appgroup     && adduser -S -D -H -u 10001 -G appgroup -s /sbin/nologin appuser
+#7 CACHED
+
+#8 [4/6] COPY requirements.txt ./
+#8 CACHED
+
+#9 [5/6] RUN python -m pip install --no-cache-dir --requirement requirements.txt     && python -m pip uninstall --yes pip
+#9 CACHED
+
+#10 [6/6] COPY --chown=appuser:appgroup app ./app
+#10 CACHED
+
+#11 exporting to image
+#11 exporting layers 0.0s done
+#11 exporting manifest sha256:8db8c781fc30a8783dcc3d4bed0509e1882836fe98870d978167e77d7e51865e done
+#11 exporting config sha256:5d8461457ecf5f968f8f24a3d68d9ddd17a3d409bd8d2a249daca0ae68e3b9ca done
+#11 exporting attestation manifest sha256:8c5a5e34a1387d608cf9058aa35b97a725cbfb12672d548fe1d2c9035b125873 done
+#11 exporting manifest list sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f done
+#11 naming to docker.io/library/platform-assessment:phase1-evidence done
+#11 unpacking to docker.io/library/platform-assessment:phase1-evidence 0.0s done
+#11 DONE 0.1s
+
+EXIT CODE: 0
+
+COMMAND
+docker image inspect platform-assessment:phase1-evidence --format '{{.Id}}|{{.Size}}|{{index .RepoDigests 0}}'
+
+ACTUAL SANITIZED OUTPUT
+sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f|23377843|platform-assessment@sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f
+
+EXIT CODE: 0
+
+COMMAND
+docker image ls platform-assessment:phase1-evidence --format 'repository={{.Repository}} tag={{.Tag}} id={{.ID}} size={{.Size}}'
+
+ACTUAL SANITIZED OUTPUT
+repository=platform-assessment tag=phase1-evidence id=dd2cc3ff84ce size=95.6MB
+
+EXIT CODE: 0
+
+COMMAND
+docker run --detach --name phase1-evidence-check --read-only --cap-drop ALL --security-opt no-new-privileges:true --publish 127.0.0.1:18080:8080 platform-assessment:phase1-evidence
+
+ACTUAL SANITIZED OUTPUT
+8928339e82fc6a04dd69084bb7f8ac6649f1abec4584936d0e02eef9b82d9795
+
+EXIT CODE: 0
+
+COMMAND
+docker container inspect phase1-evidence-check --format 'status={{.State.Status}} running={{.State.Running}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{json .HostConfig.CapDrop}} security_opt={{json .HostConfig.SecurityOpt}}'
+
+ACTUAL SANITIZED OUTPUT
+status=running running=true exit=0 health=healthy read_only=true cap_drop=["ALL"] security_opt=["no-new-privileges:true"]
+
+EXIT CODE: 0
+
+COMMAND
+curl --fail --silent --show-error --write-out '\nHTTP %{http_code}\n' http://127.0.0.1:18080/health
+
+ACTUAL SANITIZED OUTPUT
+{"status":"healthy"}
+HTTP 200
+
+EXIT CODE: 0
+
+COMMAND
+docker container inspect phase1-evidence-check --format '{{.State.Health.Status}}'
+
+ACTUAL SANITIZED OUTPUT
+healthy
+
+EXIT CODE: 0
+
+COMMAND
+docker exec phase1-evidence-check id
+
+ACTUAL SANITIZED OUTPUT
+uid=10001(appuser) gid=10001(appgroup) groups=10001(appgroup)
+
+EXIT CODE: 0
+
+COMMAND
+docker exec phase1-evidence-check python -m pip --version
+
+ACTUAL SANITIZED OUTPUT
+/usr/local/bin/python: No module named pip
+
+EXIT CODE: 1 (EXPECTED; PASS: pip is absent from the runtime)
+
+COMMAND
+docker exec phase1-evidence-check sh -c 'touch /write-test'
+
+ACTUAL SANITIZED OUTPUT
+touch: /write-test: Read-only file system
+
+EXIT CODE: 1 (EXPECTED; PASS: the read-only filesystem rejected the write)
+
+CLEANUP COMMAND
+docker stop phase1-evidence-check
+
+ACTUAL SANITIZED OUTPUT
+phase1-evidence-check
+
+EXIT CODE: 0
+
+CLEANUP COMMAND
+docker rm phase1-evidence-check
+
+ACTUAL SANITIZED OUTPUT
+phase1-evidence-check
+
+EXIT CODE: 0
+
+FINAL VALIDATION RESULT
+PASS. Ruff, pytest, pip check, image build, hardened execution, endpoint contract,
+Docker health, non-root identity, runtime pip removal, read-only compatibility,
+and evidence-container cleanup produced the expected results. The local image
+platform-assessment:phase1-evidence was retained for review.

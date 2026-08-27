@@ -1,0 +1,1 @@
+"""Platform assessment application package."""

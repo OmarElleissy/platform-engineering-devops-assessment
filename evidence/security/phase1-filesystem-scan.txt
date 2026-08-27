@@ -1,0 +1,58 @@
+PHASE 1 TRIVY FILESYSTEM SCAN EVIDENCE
+=======================================
+
+Evidence finalized (UTC): 2026-08-25T22:39:51Z
+Git commit: 0cf2f51f1aa03d7fb4040bb798e6e0988f8f9149
+Image tag: platform-assessment:phase1-evidence
+Image ID: sha256:dd2cc3ff84ceaf88d1b852cedd38d02f1e0ab231f728a010290d0d886100471f
+Docker inspect .Size: 23377843 bytes
+Docker image-list display size: 95.6MB
+Trivy version: 0.74.0
+Trivy vulnerability DB version: 2
+Trivy vulnerability DB updated (UTC): 2026-08-25T06:59:59.307495517Z
+Trivy vulnerability DB downloaded (UTC): 2026-08-25T09:40:00.618566587Z
+
+POINT-IN-TIME STATEMENT
+This evidence applies only to the commit, image ID, tool version, and database
+timestamps above. It is a point-in-time result and not a guarantee for later
+commits, rebuilt images, or future vulnerability intelligence.
+
+SANITIZATION
+The Trivy cache home was replaced with <home>. No username, absolute local
+project path, host IP address, credential, token, AWS account ID, or private
+repository information is retained. Trivy log timestamps below use the scan
+host's UTC+03 offset; the evidence timestamp and database timestamps above are
+normalized to UTC.
+
+COMMAND
+trivy filesystem --scanners vuln,secret,misconfig --no-progress --format table .
+
+ACTUAL SANITIZED OUTPUT
+2026-08-26T01:39:34+03:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-08-26T01:39:34+03:00	INFO	[misconfig] Misconfiguration scanning is enabled
+2026-08-26T01:39:34+03:00	INFO	[checks-client] Using existing checks from cache	path="<home>/.cache/trivy/policy/content"
+2026-08-26T01:39:35+03:00	INFO	[secret] Secret scanning is enabled
+2026-08-26T01:39:35+03:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln,misconfig' to disable secret scanning
+2026-08-26T01:39:35+03:00	INFO	[secret] Please see https://trivy.dev/docs/v0.74/guide/scanner/secret#recommendation for faster secret detection
+2026-08-26T01:39:44+03:00	INFO	Number of language-specific files	num=1
+2026-08-26T01:39:44+03:00	INFO	[pip] Detecting vulnerabilities...
+2026-08-26T01:39:44+03:00	INFO	Detected config files	num=1
+
+Report Summary
+
+┌──────────────────┬────────────┬─────────────────┬─────────┬───────────────────┐
+│      Target      │    Type    │ Vulnerabilities │ Secrets │ Misconfigurations │
+├──────────────────┼────────────┼─────────────────┼─────────┼───────────────────┤
+│ requirements.txt │    pip     │        0        │    -    │         -         │
+├──────────────────┼────────────┼─────────────────┼─────────┼───────────────────┤
+│ Dockerfile       │ dockerfile │        -        │    -    │         0         │
+└──────────────────┴────────────┴─────────────────┴─────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+EXIT CODE: 0
+
+RESULT
+PASS. Trivy reported zero dependency vulnerabilities, zero secrets, and zero
+Dockerfile misconfigurations for this point-in-time filesystem scan.

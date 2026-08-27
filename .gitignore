@@ -216,3 +216,31 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local assessment material - never commit
+/reference/
+
+# Local Python virtual environments
+.venv*/
+
+# Terraform local working data and state
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+*.tfbackend
+*.tfplan
+*.plan
+**/tfplan
+crash.log
+crash.*.log
+
+# Phase 3C bootstrap and CD runtime material
+bootstrap/terraform.tfstate
+bootstrap/terraform.tfstate.*
+bootstrap/*.tfvars
+bootstrap/*.tfvars.json
+bootstrap/*.tfplan
+bootstrap/*.plan

@@ -1,0 +1,6 @@
+# Deny by default so local state, tests, VCS data, and secrets cannot enter
+# the build context. Re-include only the runtime inputs used by Dockerfile.
+*
+!app/
+!app/**
+!requirements.txt
