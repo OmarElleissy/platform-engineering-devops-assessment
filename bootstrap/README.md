@@ -2,8 +2,9 @@
 
 This separate Terraform root defines the long-lived prerequisites for future
 application delivery. It has deliberately local state and must be operated
-manually by an authorized administrator. Checkpoint 1 has not run this root and
-has not created AWS or GitHub resources.
+manually by an authorized administrator. Checkpoint 1 is committed and passed
+CI run `#7`, but this root has not been planned or applied and has not created
+AWS or GitHub resources.
 
 ## Resources
 
@@ -62,10 +63,11 @@ claims:
 - workflow name equal to `Deploy application infrastructure` or
   `Destroy application infrastructure`.
 
-Those names are reserved for the ordinary Checkpoint 2 workflows. The trust
+Those names exactly match the ordinary Checkpoint 2 workflow code. The trust
 uses the supported `workflow` claim and does not use `job_workflow_ref`, which
 is intended for reusable-workflow identity. GitHub environment protection must
-still be configured in GitHub before either future workflow can authenticate.
+still be configured in GitHub before either workflow can authenticate. Neither
+workflow has executed, and OIDC claim matching remains untested.
 
 No thumbprint is hardcoded. Current AWS IAM behavior uses AWS's trusted CA
 library for GitHub, and the current HashiCorp AWS provider makes
@@ -109,7 +111,7 @@ resource-level authorization:
 
 The role does not have AdministratorAccess, cannot pass an arbitrary role,
 cannot manage unrelated IAM roles, and has no access to unrelated state
-objects, ECR repositories, or log groups. Live Checkpoint 2 testing must verify
+objects, ECR repositories, or log groups. A later live execution must verify
 that this policy is both sufficient and still least-privileged; no such test has
 occurred yet.
 

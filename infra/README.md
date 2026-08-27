@@ -183,8 +183,9 @@ useful only after that deployment completes successfully.
 
 The commands below are not ready for use until the separate bootstrap has been
 applied and the local application state has passed the documented manual remote
-state migration checkpoint. The future workflow will supply the private bucket
-name through a temporary `.tfbackend` file under `${RUNNER_TEMP}`. See the
+state migration checkpoint. The implemented but unexecuted workflows will
+supply the private bucket name through a temporary `.tfbackend` file under
+`${RUNNER_TEMP}`. See the
 [Phase 3C design](../docs/phase3c-continuous-delivery.md). State, backend files,
 and plans must never be public artifacts.
 

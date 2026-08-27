@@ -2,12 +2,15 @@
 
 ## Status
 
-Checkpoint 1 implements repository foundations only. The bootstrap and
-application configurations have not been planned against, applied to, or
-queried in AWS. No GitHub Environment, OIDC trust, role, bucket, workflow, or
-registry integration has been configured. Deploy and destroy workflows and CD
-evidence remain intentionally absent until Checkpoint 2 and successful live
-executions.
+Checkpoint 1 is committed, and CI run `#7` validated both Terraform roots with
+all four jobs passing in 1 minute 30 seconds. Checkpoint 2 now implements the
+deploy and destroy workflow code plus offline policy scripts, but those changes
+have not run in GitHub Actions. The feature branch is not merged into `main`.
+
+The bootstrap has not been planned against, applied to, or queried in AWS. No
+GitHub Environment, secrets, variables, OIDC provider, lifecycle role, state
+bucket, registry integration, remote-state migration, deployment, or cleanup
+has occurred. No AWS cost has started, and no CD evidence exists.
 
 ## Architecture and ownership boundary
 
@@ -27,7 +30,7 @@ bootstrap/ local state
 protected GitHub Environment: assessment-aws
         |
         v
-future main-only deploy or destroy workflow
+manual-only main deploy or destroy workflow code
         |
         v
 infra/ partial S3 backend -> application AWS resources
@@ -45,7 +48,7 @@ GitHub OIDC replaces long-lived AWS access keys. The lifecycle role accepts
 only `sts:AssumeRoleWithWebIdentity` from the exact configured GitHub provider.
 Its trust requires the audience, immutable environment subject, repository
 name, immutable repository and owner IDs, `main` ref, `assessment-aws`
-environment, and one of the two exact future workflow names. The immutable
+environment, and one of the two exact workflow names. The immutable
 subject format for this post-July-15-2026 repository is:
 
 ```text
@@ -53,7 +56,7 @@ repo:OWNER@OWNER-ID/REPOSITORY@REPOSITORY-ID:environment:assessment-aws
 ```
 
 The real subject must be copied from verified repository identity data. The
-future jobs must declare the protected environment, and GitHub must configure
+jobs declare the protected environment, and GitHub must configure
 required reviewers and restrict deployment branches to `main`. IAM claim
 checks and GitHub environment rules are complementary; neither replaces the
 other.
@@ -67,7 +70,7 @@ duties outweighs this simplicity.
 ## State protection
 
 The application backend commits only a non-secret key, region, encryption flag,
-and native `use_lockfile = true`. A future workflow will write the real bucket
+and native `use_lockfile = true`. Each workflow writes the real bucket
 name to a temporary `.tfbackend` file under `${RUNNER_TEMP}` and will never
 publish that file, state, or plans as artifacts.
 
@@ -98,31 +101,79 @@ local/empty, but migration still requires an explicit manual checkpoint:
 5. Verify the remote state object and locking behavior without publishing state
    or plan content, then retain the private local backup until recovery has been
    tested.
-6. Only after migration is reviewed should Checkpoint 2 CD be enabled.
+6. Only after migration is reviewed should the protected workflows be enabled
+   for deliberate manual execution.
 
 Migration must never run automatically in CD, and state or plans must never be
 uploaded as public GitHub artifacts.
 
-## Future deploy workflow
+## Deploy workflow — implemented, not executed
 
-The future ordinary workflow name is `Deploy application infrastructure`. It
-will run only for the protected `assessment-aws` environment from `main`, obtain
-short-lived AWS credentials through OIDC, build and scan the exact commit image,
-push the full 40-character Git SHA to the immutable assessment ECR repository,
-initialize the private backend, review/apply that same SHA, wait for ECS/ALB
-health, and emit only sanitized evidence. It will never use `latest`, a short
-SHA, or a branch tag.
+The ordinary workflow name is `Deploy application infrastructure`. It is
+manual-dispatch only, refuses a non-`main` ref or anything except the typed
+confirmation `DEPLOY platform-assessment`, declares `assessment-aws`, and
+shares queued lifecycle concurrency with destroy.
 
-## Future destroy workflow
+Its static sequence discovers and masks the runner IPv4 `/32`, obtains bounded
+OIDC credentials, verifies the expected account privately, initializes the
+temporary backend, validates a saved zero-task plan, and applies that exact
+plan. It then builds, scans, and hardens the exact full-SHA image locally. ECR
+publication is immutable and retry-bounded; an existing SHA is pulled by digest
+and must have the matching OCI revision label before the same scan/runtime
+gates pass. A second saved plan may change only the approved ECS live
+transition. Post-apply checks emit only whitelisted ECS, task, target, HTTP, and
+CloudWatch summaries. Failure never triggers automatic destruction or state
+force-unlocking.
 
-The future ordinary workflow name is `Destroy application infrastructure`. It
-will be independently manual, protected by the same environment, restricted to
-`main`, and serialized against deploy. It will confirm the intended state,
-destroy only `infra/`, handle the non-empty ECR safety boundary deliberately,
-verify cleanup without exposing identifiers, and retain all bootstrap
-resources. It will not bypass the bootstrap bucket's `prevent_destroy` guard.
+## Destroy workflow — implemented, not executed
 
-Neither workflow exists at Checkpoint 1.
+The ordinary workflow name is `Destroy application infrastructure`. It is
+manual-dispatch only and requires both `DESTROY platform-assessment` and the
+expected deployed full SHA. It is protected by the same environment,
+restricted to `main`, and serialized against deploy.
+
+The workflow proves the remote application state, image SHA, repository, and
+current runner CIDR before a saved scale-zero transition. It waits for zero
+tasks, rejects untagged or non-SHA images, deletes only validated digests in
+batches of at most 100, then validates and applies a deletion-only saved plan.
+Independent sanitized checks require the application ECR repository and ALB to
+be absent, ECS inactive/absent, NAT absent/deleted, the EIP released, and zero
+managed resources in application state. Bootstrap resources remain outside the
+destroy root and are retained.
+
+## Required GitHub Environment and activation sequence
+
+The protected Environment must be named exactly `assessment-aws` and must be
+created later with required reviewers and a deployment-branch rule allowing
+only `main`.
+
+Required Environment secrets:
+
+- `AWS_ROLE_ARN`
+- `AWS_ACCOUNT_ID`
+- `TF_STATE_BUCKET`
+
+Required Environment variable:
+
+- `AWS_REGION=eu-central-1`
+
+The future manual activation sequence is:
+
+1. Review and merge the feature branch into `main` only after CI passes.
+2. Privately back up local bootstrap and application state.
+3. Manually plan, review, and apply `bootstrap/` with verified AWS/GitHub IDs.
+4. Verify the retained bucket, OIDC trust, role, and policy in AWS.
+5. Create and protect the exact GitHub Environment and add its three secrets
+   and one region variable without exposing their values.
+6. Perform and verify the separate manual application-state migration.
+7. Manually dispatch deploy from `main` with the exact typed confirmation.
+8. Create sanitized evidence only after a successful live execution.
+9. When cleanup is approved, dispatch destroy with its typed confirmation and
+   the exact deployed full SHA; record evidence only after verified cleanup.
+
+Until all prerequisites are deliberately completed, the workflows are expected
+to be unable to authenticate or operate successfully. Workflow code alone is
+not complete CD.
 
 ## Logs, failure recovery, and cost
 

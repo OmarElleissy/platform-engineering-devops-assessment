@@ -1,0 +1,626 @@
+name: Deploy application infrastructure
+
+"on":
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type DEPLOY platform-assessment"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: platform-assessment-aws-lifecycle
+  queue: max
+
+env:
+  IMAGE_NAME: platform-assessment
+  TERRAFORM_VERSION: "1.15.9"
+  TRIVY_VERSION: "v0.74.0"
+
+jobs:
+  preflight:
+    name: Validate manual deployment request
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Refuse non-main or unconfirmed deployment
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${CONFIRMATION}" = "DEPLOY platform-assessment"
+
+  deploy:
+    name: Gated deployment lifecycle
+    needs: preflight
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+    environment: assessment-aws
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EXPECTED_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      LOCAL_IMAGE: platform-assessment:${{ github.sha }}
+      LOCAL_CONTAINER: phase3c-deploy-local
+      PUBLISHED_CONTAINER: phase3c-deploy-published
+    steps:
+      - name: Check out exact workflow commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact immutable checkout
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          test "${checked_out_sha}" = "${GITHUB_SHA}"
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialize private runner paths and environment inputs
+        run: |
+          set -euo pipefail
+          test "${AWS_REGION}" = "eu-central-1"
+          [[ "${EXPECTED_AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
+          [[ "${TF_STATE_BUCKET}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]
+          [[ "${AWS_ROLE_ARN}" =~ ^arn:[a-z0-9-]+:iam::${EXPECTED_AWS_ACCOUNT_ID}:role/[A-Za-z0-9+=,.@_-]+$ ]]
+
+          echo "::add-mask::${EXPECTED_AWS_ACCOUNT_ID}"
+          echo "::add-mask::${TF_STATE_BUCKET}"
+          echo "::add-mask::${AWS_ROLE_ARN}"
+
+          cd_temp="${RUNNER_TEMP}/platform-assessment-cd"
+          mkdir -p "${cd_temp}/docker" "${cd_temp}/terraform-data"
+          chmod 0700 "${cd_temp}" "${cd_temp}/docker" "${cd_temp}/terraform-data"
+          backend_file="${cd_temp}/application.tfbackend"
+          printf 'bucket = "%s"\n' "${TF_STATE_BUCKET}" > "${backend_file}"
+          chmod 0600 "${backend_file}"
+
+          {
+            echo "CD_TEMP=${cd_temp}"
+            echo "DOCKER_CONFIG=${cd_temp}/docker"
+            echo "TF_DATA_DIR=${cd_temp}/terraform-data"
+            echo "BACKEND_FILE=${backend_file}"
+            echo "TF_VAR_aws_region=${AWS_REGION}"
+            echo "TF_VAR_image_tag=${GITHUB_SHA}"
+            echo "TF_VAR_desired_count=0"
+          } >> "${GITHUB_ENV}"
+
+      - name: Discover and restrict HTTP ingress to runner IPv4
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          runner_ip="$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 20 \
+            --retry 2 \
+            https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python - "${runner_ip}" <<'PY'
+          import ipaddress
+          import sys
+
+          value = sys.argv[1]
+          address = ipaddress.ip_address(value)
+          if address.version != 4 or str(address) != value:
+              raise SystemExit("runner address is not canonical IPv4")
+          PY
+          runner_cidr="${runner_ip}/32"
+          echo "::add-mask::${runner_ip}"
+          echo "::add-mask::${runner_cidr}"
+          echo "RUNNER_CIDR=${runner_cidr}" >> "${GITHUB_ENV}"
+          printf 'TF_VAR_allowed_http_cidrs=["%s"]\n' "${runner_cidr}" >> "${GITHUB_ENV}"
+
+      - name: Obtain bounded bootstrap credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: deploy-bootstrap-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Verify expected AWS identity privately
+        run: |
+          set -euo pipefail
+          identity_file="${CD_TEMP}/sts-identity.json"
+          aws sts get-caller-identity --output json > "${identity_file}" 2> "${CD_TEMP}/sts-error.log"
+          python - "${identity_file}" "${EXPECTED_AWS_ACCOUNT_ID}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              identity = json.load(stream)
+          if identity.get("Account") != sys.argv[2]:
+              raise SystemExit("unexpected AWS account")
+          PY
+          echo "AWS identity check: expected account matched"
+
+      - name: Initialize and validate application Terraform privately
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive infra > "${CD_TEMP}/terraform-fmt.log" 2>&1
+          terraform -chdir=infra init \
+            -input=false \
+            -reconfigure \
+            -backend-config="${BACKEND_FILE}" \
+            > "${CD_TEMP}/terraform-init.log" 2>&1
+          terraform -chdir=infra validate -no-color \
+            > "${CD_TEMP}/terraform-validate.log" 2>&1
+          echo "Terraform formatting, backend initialization, and validation: passed"
+
+      - name: Create and validate zero-task saved plan
+        run: |
+          set -euo pipefail
+          bootstrap_plan="${CD_TEMP}/bootstrap.tfplan"
+          bootstrap_json="${CD_TEMP}/bootstrap-plan.json"
+          terraform -chdir=infra plan \
+            -input=false \
+            -no-color \
+            -out="${bootstrap_plan}" \
+            > "${CD_TEMP}/bootstrap-plan.log" 2>&1
+          terraform -chdir=infra show -json "${bootstrap_plan}" > "${bootstrap_json}"
+          python scripts/cd/terraform_plan_policy.py \
+            --mode bootstrap \
+            --plan-json "${bootstrap_json}" \
+            --sha "${GITHUB_SHA}" \
+            --cidr "${RUNNER_CIDR}"
+          echo "BOOTSTRAP_PLAN=${bootstrap_plan}" >> "${GITHUB_ENV}"
+
+      - name: Apply exact zero-task saved plan privately
+        run: |
+          set -euo pipefail
+          apply_log="${CD_TEMP}/bootstrap-apply.log"
+          if ! terraform -chdir=infra apply \
+            -input=false \
+            -no-color \
+            -auto-approve \
+            "${BOOTSTRAP_PLAN}" > "${apply_log}" 2>&1; then
+            echo "::error::Zero-task Terraform apply failed; private diagnostics were not printed"
+            exit 1
+          fi
+          python scripts/cd/sanitize_apply.py --apply-log "${apply_log}"
+
+      - name: Extract and mask Terraform outputs privately
+        run: |
+          set -euo pipefail
+          outputs_file="${CD_TEMP}/terraform-outputs.json"
+          terraform -chdir=infra output -json > "${outputs_file}" 2> "${CD_TEMP}/output-error.log"
+          python scripts/cd/private_values.py \
+            --kind outputs \
+            --json "${outputs_file}" \
+            --github-env "${GITHUB_ENV}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build exact commit image without pushing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=phase3c-linux-amd64
+          cache-to: type=gha,mode=max,scope=phase3c-linux-amd64
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.6
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+
+      - name: Block High and Critical local image vulnerabilities
+        run: |
+          set -euo pipefail
+          if ! trivy image \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --no-progress \
+              --format table \
+              "${LOCAL_IMAGE}" > "${CD_TEMP}/trivy-local.log" 2>&1; then
+            echo "::error::The local image failed the High/Critical vulnerability gate"
+            exit 1
+          fi
+          echo "Local image High/Critical vulnerability gate: passed"
+
+      - name: Validate exact local image under hardened runtime controls
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name "${LOCAL_CONTAINER}" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --publish 127.0.0.1:18080:8080 \
+            "${LOCAL_IMAGE}" > "${CD_TEMP}/local-container-id.txt"
+
+          health_status=starting
+          for attempt in $(seq 1 40); do
+            health_status="$(docker inspect --format '{{.State.Health.Status}}' "${LOCAL_CONTAINER}")"
+            if [ "${health_status}" = healthy ]; then
+              break
+            fi
+            test "${health_status}" != unhealthy
+            sleep 2
+          done
+          test "${health_status}" = healthy
+
+          response_file="${CD_TEMP}/local-health-response.json"
+          http_status="$(curl \
+            --silent \
+            --show-error \
+            --output "${response_file}" \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:18080/health)"
+          test "${http_status}" = 200
+          test "$(cat "${response_file}")" = '{"status":"healthy"}'
+          runtime_identity="$(docker exec "${LOCAL_CONTAINER}" id -u):$(docker exec "${LOCAL_CONTAINER}" id -g)"
+          test "${runtime_identity}" = 10001:10001
+          test "$(docker inspect --format '{{.State.Health.Status}}' "${LOCAL_CONTAINER}")" = healthy
+          echo "Local image validation: healthy, HTTP 200, exact body, UID/GID 10001:10001"
+
+      - name: Remove local runtime container
+        if: ${{ always() }}
+        run: docker rm --force "${LOCAL_CONTAINER}" > /dev/null 2>&1 || true
+
+      - name: Refresh OIDC credentials for ECR publication
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: deploy-ecr-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Authenticate Docker to the managed ECR registry privately
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${AWS_REGION}" 2> "${CD_TEMP}/ecr-login-error.log" |
+            docker login \
+              --username AWS \
+              --password-stdin \
+              "${ECR_REGISTRY}" > "${CD_TEMP}/docker-login.log" 2>&1
+          echo "Private ECR authentication: completed"
+
+      - name: Determine whether immutable SHA already exists
+        id: existing-image
+        run: |
+          set -euo pipefail
+          inventory="${CD_TEMP}/ecr-before-push.json"
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --output json > "${inventory}" 2> "${CD_TEMP}/ecr-describe-error.log"
+          python scripts/cd/ecr_policy.py \
+            --mode find \
+            --json "${inventory}" \
+            --sha "${GITHUB_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Publish exact immutable SHA with bounded retries
+        if: ${{ steps.existing-image.outputs.EXISTS == 'false' }}
+        run: |
+          set -euo pipefail
+          published_ref="${ECR_REPOSITORY_URL}:${GITHUB_SHA}"
+          echo "::add-mask::${published_ref}"
+          docker tag "${LOCAL_IMAGE}" "${published_ref}"
+
+          pushed=false
+          for attempt in 1 2 3; do
+            if timeout 5m docker push "${published_ref}" \
+              > "${CD_TEMP}/docker-push-${attempt}.log" 2>&1; then
+              pushed=true
+              break
+            fi
+
+            inventory="${CD_TEMP}/ecr-after-attempt-${attempt}.json"
+            aws ecr describe-images \
+              --repository-name "${ECR_REPOSITORY_NAME}" \
+              --output json > "${inventory}" 2> "${CD_TEMP}/ecr-retry-error.log"
+            retry_output="${CD_TEMP}/retry-${attempt}.env"
+            : > "${retry_output}"
+            python scripts/cd/ecr_policy.py \
+              --mode find \
+              --json "${inventory}" \
+              --sha "${GITHUB_SHA}" \
+              --github-output "${retry_output}"
+            source "${retry_output}"
+            if [ "${EXISTS}" = true ]; then
+              pushed=true
+              break
+            fi
+            if [ "${attempt}" -lt 3 ]; then
+              sleep $((attempt * 5))
+            fi
+          done
+          test "${pushed}" = true
+          echo "Exact immutable SHA publication: confirmed"
+
+      - name: Resolve and mask exact published digest
+        id: published-image
+        run: |
+          set -euo pipefail
+          inventory="${CD_TEMP}/ecr-published.json"
+          aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY_NAME}" \
+            --output json > "${inventory}" 2> "${CD_TEMP}/ecr-published-error.log"
+          python scripts/cd/ecr_policy.py \
+            --mode find \
+            --json "${inventory}" \
+            --sha "${GITHUB_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+          test "$(tail -n 2 "${GITHUB_OUTPUT}" | grep '^EXISTS=' | tail -n 1)" = "EXISTS=true"
+
+      - name: Pull and verify immutable published artifact
+        env:
+          PUBLISHED_DIGEST: ${{ steps.published-image.outputs.DIGEST }}
+        run: |
+          set -euo pipefail
+          [[ "${PUBLISHED_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          published_ref="${ECR_REPOSITORY_URL}@${PUBLISHED_DIGEST}"
+          echo "::add-mask::${published_ref}"
+          echo "PUBLISHED_REF=${published_ref}" >> "${GITHUB_ENV}"
+          docker pull "${published_ref}" > "${CD_TEMP}/docker-pull.log" 2>&1
+          revision="$(docker image inspect \
+            --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            "${published_ref}")"
+          test "${revision}" = "${GITHUB_SHA}"
+
+      - name: Block High and Critical published image vulnerabilities
+        run: |
+          set -euo pipefail
+          if ! trivy image \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --no-progress \
+              --format table \
+              "${PUBLISHED_REF}" > "${CD_TEMP}/trivy-published.log" 2>&1; then
+            echo "::error::The published image failed the High/Critical vulnerability gate"
+            exit 1
+          fi
+          echo "Published image High/Critical vulnerability gate: passed"
+
+      - name: Validate published artifact under hardened runtime controls
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name "${PUBLISHED_CONTAINER}" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --publish 127.0.0.1:18081:8080 \
+            "${PUBLISHED_REF}" > "${CD_TEMP}/published-container-id.txt"
+
+          health_status=starting
+          for attempt in $(seq 1 40); do
+            health_status="$(docker inspect --format '{{.State.Health.Status}}' "${PUBLISHED_CONTAINER}")"
+            if [ "${health_status}" = healthy ]; then
+              break
+            fi
+            test "${health_status}" != unhealthy
+            sleep 2
+          done
+          test "${health_status}" = healthy
+          response_file="${CD_TEMP}/published-health-response.json"
+          http_status="$(curl \
+            --silent \
+            --show-error \
+            --output "${response_file}" \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:18081/health)"
+          test "${http_status}" = 200
+          test "$(cat "${response_file}")" = '{"status":"healthy"}'
+          runtime_identity="$(docker exec "${PUBLISHED_CONTAINER}" id -u):$(docker exec "${PUBLISHED_CONTAINER}" id -g)"
+          test "${runtime_identity}" = 10001:10001
+          test "$(docker inspect --format '{{.State.Health.Status}}' "${PUBLISHED_CONTAINER}")" = healthy
+          echo "Published image validation: healthy, HTTP 200, exact body, UID/GID 10001:10001"
+
+      - name: Remove published runtime container
+        if: ${{ always() }}
+        run: docker rm --force "${PUBLISHED_CONTAINER}" > /dev/null 2>&1 || true
+
+      - name: Refresh OIDC credentials for live Terraform transition
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: deploy-live-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Create and validate live saved plan
+        run: |
+          set -euo pipefail
+          echo "TF_VAR_desired_count=1" >> "${GITHUB_ENV}"
+          export TF_VAR_desired_count=1
+          live_plan="${CD_TEMP}/live.tfplan"
+          live_json="${CD_TEMP}/live-plan.json"
+          terraform -chdir=infra plan \
+            -input=false \
+            -no-color \
+            -out="${live_plan}" \
+            > "${CD_TEMP}/live-plan.log" 2>&1
+          terraform -chdir=infra show -json "${live_plan}" > "${live_json}"
+          python scripts/cd/terraform_plan_policy.py \
+            --mode live \
+            --plan-json "${live_json}" \
+            --sha "${GITHUB_SHA}" \
+            --cidr "${RUNNER_CIDR}"
+          echo "LIVE_PLAN=${live_plan}" >> "${GITHUB_ENV}"
+
+      - name: Apply exact live saved plan privately
+        run: |
+          set -euo pipefail
+          echo "VALIDATION_START_MS=$(date +%s000)" >> "${GITHUB_ENV}"
+          apply_log="${CD_TEMP}/live-apply.log"
+          if ! terraform -chdir=infra apply \
+            -input=false \
+            -no-color \
+            -auto-approve \
+            "${LIVE_PLAN}" > "${apply_log}" 2>&1; then
+            echo "::error::Live Terraform apply failed; chargeable infrastructure may remain"
+            exit 1
+          fi
+          python scripts/cd/sanitize_apply.py --apply-log "${apply_log}"
+
+      - name: Extract and mask current target details privately
+        run: |
+          set -euo pipefail
+          state_json="${CD_TEMP}/live-state.json"
+          terraform -chdir=infra show -json > "${state_json}" 2> "${CD_TEMP}/state-error.log"
+          python scripts/cd/private_values.py \
+            --kind state \
+            --json "${state_json}" \
+            --expected-sha "${GITHUB_SHA}" \
+            --github-env "${GITHUB_ENV}"
+
+      - name: Refresh OIDC credentials for post-apply validation
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        timeout-minutes: 3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: deploy-validate-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 3600
+          retry-max-attempts: 3
+
+      - name: Capture live AWS and HTTP validation privately
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${ECS_SERVICE_NAME}" \
+            > "${CD_TEMP}/ecs-wait.log" 2>&1
+          aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${ECS_SERVICE_NAME}" \
+            --output json > "${CD_TEMP}/service.json" 2> "${CD_TEMP}/service-error.log"
+          aws ecs list-tasks \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service-name "${ECS_SERVICE_NAME}" \
+            --desired-status RUNNING \
+            --output json > "${CD_TEMP}/task-list.json" 2> "${CD_TEMP}/task-list-error.log"
+          python - "${CD_TEMP}/task-list.json" "${CD_TEMP}/task-arns.txt" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              task_arns = json.load(stream).get("taskArns", [])
+          if len(task_arns) != 1 or not isinstance(task_arns[0], str):
+              raise SystemExit("expected exactly one running ECS task")
+          with open(sys.argv[2], "w", encoding="utf-8") as stream:
+              stream.write(task_arns[0])
+          PY
+          task_arn="$(cat "${CD_TEMP}/task-arns.txt")"
+          echo "::add-mask::${task_arn}"
+          aws ecs describe-tasks \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --tasks "${task_arn}" \
+            --output json > "${CD_TEMP}/task.json" 2> "${CD_TEMP}/task-error.log"
+          aws elbv2 describe-target-health \
+            --target-group-arn "${TARGET_GROUP_ARN}" \
+            --output json > "${CD_TEMP}/target.json" 2> "${CD_TEMP}/target-error.log"
+
+          body_file="${CD_TEMP}/health-body.json"
+          http_status="$(curl \
+            --silent \
+            --show-error \
+            --max-time 15 \
+            --output "${body_file}" \
+            --write-out '%{http_code}' \
+            "${APPLICATION_URL}/health")"
+          exact_body_match=false
+          if [ "$(cat "${body_file}")" = '{"status":"healthy"}' ]; then
+            exact_body_match=true
+          fi
+          success_count=0
+          for attempt in 1 2 3 4 5; do
+            status="$(curl \
+              --silent \
+              --show-error \
+              --max-time 15 \
+              --output "${CD_TEMP}/health-${attempt}.json" \
+              --write-out '%{http_code}' \
+              "${APPLICATION_URL}/health")"
+            if [ "${status}" = 200 ]; then
+              success_count=$((success_count + 1))
+            fi
+          done
+          python - "${CD_TEMP}/http-summary.json" "${http_status}" "${exact_body_match}" "${success_count}" <<'PY'
+          import json
+          import sys
+
+          summary = {
+              "status": int(sys.argv[2]),
+              "exact_body_match": sys.argv[3] == "true",
+              "five_request_success_count": int(sys.argv[4]),
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as stream:
+              json.dump(summary, stream)
+          PY
+          aws logs filter-log-events \
+            --log-group-name "${CLOUDWATCH_LOG_GROUP_NAME}" \
+            --start-time "${VALIDATION_START_MS}" \
+            --output json > "${CD_TEMP}/logs.json" 2> "${CD_TEMP}/logs-error.log"
+
+      - name: Print whitelisted deployment validation summary
+        run: |
+          set -euo pipefail
+          python scripts/cd/aws_policy.py \
+            --mode live \
+            --service-json "${CD_TEMP}/service.json" \
+            --task-json "${CD_TEMP}/task.json" \
+            --target-json "${CD_TEMP}/target.json" \
+            --http-json "${CD_TEMP}/http-summary.json" \
+            --log-json "${CD_TEMP}/logs.json"
+
+      - name: Report safe recovery boundary on failure
+        if: ${{ failure() }}
+        run: |
+          echo "Deployment failed; chargeable application infrastructure may remain."
+          echo "Use the separate approved destroy or recovery workflow after review."
+          echo "Terraform state was retained; no automatic destroy or force-unlock was attempted."
+
+      - name: Clean temporary files
+        if: ${{ always() }}
+        run: |
+          docker rm --force "${LOCAL_CONTAINER}" "${PUBLISHED_CONTAINER}" > /dev/null 2>&1 || true
+          if [ -n "${ECR_REGISTRY:-}" ]; then
+            docker logout "${ECR_REGISTRY}" > /dev/null 2>&1 || true
+          fi
+          if [ -n "${CD_TEMP:-}" ] && [[ "${CD_TEMP}" == "${RUNNER_TEMP}/"* ]]; then
+            rm -rf "${CD_TEMP}"
+          fi

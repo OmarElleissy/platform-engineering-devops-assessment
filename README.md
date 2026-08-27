@@ -47,12 +47,13 @@ the sanitized
 [Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
 and the [Kubernetes reference deployment](k8s/README.md).
 
-**Phase 3C Checkpoint 1 repository foundations are implemented locally but have
-not been executed.** A separate local-state bootstrap root now defines the
-future versioned S3 backend, GitHub OIDC provider integration, and one scoped CD
-lifecycle role; the application root declares a partial S3 backend. No AWS or
-GitHub OIDC configuration has occurred, application state has not been
-migrated, and deploy/destroy workflows remain unimplemented. See the
+**Phase 3C Checkpoint 1 is committed and Checkpoint 2 workflow code is
+implemented locally but unexecuted.** GitHub Actions run `#7` passed all four CI
+jobs in 1 minute 30 seconds and validated both Terraform roots. The repository
+now contains manual-only gated deploy/destroy workflows and offline fail-closed
+policy scripts. The feature branch is not merged into `main`; no GitHub
+Environment, secrets, OIDC configuration, AWS bootstrap, state migration,
+deployment, cleanup, cost, or CD evidence exists. See the
 [Phase 3C continuous-delivery design](docs/phase3c-continuous-delivery.md).
 
 **There is currently no live endpoint.** The environment can be recreated from
@@ -62,8 +63,8 @@ measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- Gated registry publishing and cloud deploy/destroy workflows (Phase 3C
-  Checkpoint 2)
+- Configuration and first validated execution of gated Phase 3C delivery,
+  including bootstrap, protected GitHub Environment, and state migration
 - Multi-cloud network design and diagram
 - Observability/SRE design
 
@@ -122,6 +123,8 @@ configuration under `infra/`, defines Phase 3A/3B CI under
 .
 ├── .github/
 │   └── workflows/
+│       ├── cd-deploy.yml
+│       ├── cd-destroy.yml
 │       └── ci.yml
 ├── app/
 │   ├── __init__.py
@@ -177,6 +180,16 @@ configuration under `infra/`, defines Phase 3A/3B CI under
 │   ├── pod-disruption-budget.yaml
 │   ├── service-account.yaml
 │   └── service.yaml
+├── scripts/
+│   └── cd/
+│       ├── aws_policy.py
+│       ├── common.py
+│       ├── ecr_policy.py
+│       ├── private_values.py
+│       ├── sanitize_apply.py
+│       ├── terraform_plan_policy.py
+│       ├── test_cd_scripts.py
+│       └── validate_workflows.py
 ├── .dockerignore
 ├── .gitignore
 ├── Dockerfile
@@ -278,7 +291,9 @@ runs even when validation fails.
 
 The workflow grants only `contents: read` and receives no AWS or registry
 credentials because CI is intentionally isolated from delivery. Registry push
-and cloud deployment remain future gated CD work. The previous Phase 2 AWS
+and cloud deployment remain isolated in separate manual workflows that ordinary
+CI statically validates but never invokes. The Checkpoint 2 changes have not yet
+run on GitHub. The previous Phase 2 AWS
 deployment was performed manually and is not evidence of an executed CI/CD
 deployment. Stable official action release tags are used for this assessment;
 pinning every action to a reviewed full commit SHA is a recommended production
@@ -465,8 +480,9 @@ operational support outweighs image minimization.
 - The bootstrap completion time and summary, exact destruction-completion time,
   deployed image tag, billable cost, and several post-destroy inventory checks
   were not retained in the available sanitized evidence.
-- Phase 3A covers CI only; registry publishing and gated cloud deployment are
-  not implemented.
+- The gated CD workflow code is implemented but has not run; bootstrap, the
+  protected Environment, OIDC authentication, state migration, deployment, and
+  cleanup remain unverified and incomplete.
 - Native Kubernetes rendering, strict schema validation, and policy assertions
   passed in CI, but the manifests have not been admitted or deployed to a real
   cluster and no Kubernetes endpoint exists.
@@ -488,8 +504,8 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Implement and execute the separately gated Phase 3C deploy/destroy workflows
-  after manual bootstrap and state migration.
+- Configure and verify the Phase 3C prerequisites, then execute the separately
+  gated deploy/destroy workflows after manual bootstrap and state migration.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Test admission and the reference deployment on a disposable cluster before
   any promotion.
