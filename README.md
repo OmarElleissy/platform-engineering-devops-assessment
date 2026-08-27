@@ -29,11 +29,12 @@ image was rebuilt without old build cache, and the remediated image passed the
 recorded High/Critical blocking scan with zero High and zero Critical findings.
 No suppression rule was used.
 
-**Phase 3A continuous integration is implemented locally but has not yet been
-executed on GitHub.** This CI-only workflow performs runner-local quality,
-security, Terraform, image, and hardened runtime checks without AWS or registry
-authentication, image pushes, or deployment steps. Its status must remain
-unverified until a GitHub Actions run completes.
+**Phase 3A continuous integration is implemented and successfully validated in
+GitHub Actions.** Run `#2`, triggered by a push to
+`feature/assessment-implementation`, completed all three CI jobs successfully
+without workflow warnings or Node.js 20 deprecation warnings. This remains a
+CI-only workflow: it does not authenticate to AWS or a registry, push an image,
+or deploy. See the sanitized [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
 **There is currently no live endpoint.** The environment can be recreated from
 the committed application and Terraform source in approximately 15–25 minutes
@@ -42,10 +43,10 @@ measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- An executed GitHub Actions CI result
 - Gated registry publishing and cloud deployment (CD)
 - Kubernetes reference manifests
-- Observability design
+- Multi-cloud network design and diagram
+- Observability/SRE design
 
 ## Implemented Phase 1 features
 
@@ -104,6 +105,7 @@ configuration under `infra/`, and defines Phase 3A CI under `.github/workflows/`
 │   └── main.py
 ├── evidence/
 │   ├── phase2-aws-deployment-and-cleanup.md
+│   ├── phase3a-ci-validation.md
 │   └── security/
 │       ├── README.md
 │       ├── phase1-filesystem-scan.txt
@@ -179,6 +181,10 @@ The [CI workflow](.github/workflows/ci.yml) runs for pushes to `main` and
 `feature/**`, for pull requests, and by manual dispatch. Concurrency control
 cancels an older in-progress run for the same branch or pull request when a
 newer commit arrives.
+
+GitHub Actions run `#2` successfully completed all three jobs with no workflow
+warnings or Node.js 20 deprecation warnings. The sanitized result is recorded in
+the [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
 The workflow uses Python 3.12 and caches pip downloads against both requirements
 files. It installs the runtime and development dependencies, runs `pip check`,
@@ -392,8 +398,8 @@ operational support outweighs image minimization.
 - The bootstrap completion time and summary, exact destruction-completion time,
   deployed image tag, billable cost, and several post-destroy inventory checks
   were not retained in the available sanitized evidence.
-- Phase 3A CI is implemented but has not yet produced a GitHub Actions run;
-  registry publishing and gated cloud deployment are not implemented.
+- Phase 3A covers CI only; registry publishing and gated cloud deployment are
+  not implemented.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
@@ -411,7 +417,6 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Execute and review Phase 3A in GitHub Actions, then retain sanitized evidence.
 - Implement separately gated CD for registry publishing and cloud deployment.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Add pending Kubernetes reference manifests.
