@@ -36,6 +36,12 @@ without workflow warnings or Node.js 20 deprecation warnings. This remains a
 CI-only workflow: it does not authenticate to AWS or a registry, push an image,
 or deploy. See the sanitized [Phase 3A CI evidence](evidence/phase3a-ci-validation.md).
 
+**Phase 3B Kubernetes reference manifests are implemented and locally validated
+for YAML structure and policy consistency.** They have not been deployed or
+admitted by a Kubernetes cluster and create no public endpoint. See the
+[Kubernetes reference deployment](k8s/README.md) for the security model, image
+replacement requirement, operator workflow, and validation limitations.
+
 **There is currently no live endpoint.** The environment can be recreated from
 the committed application and Terraform source in approximately 15–25 minutes
 under normal AWS and network conditions. This is a planning estimate, not a
@@ -44,7 +50,6 @@ measured service-level agreement.
 The following work remains pending and is not represented as complete:
 
 - Gated registry publishing and cloud deployment (CD)
-- Kubernetes reference manifests
 - Multi-cloud network design and diagram
 - Observability/SRE design
 
@@ -93,7 +98,8 @@ security-scan findings, bootstrap sequence, and cleanup guidance.
 ## Repository structure
 
 The public repository preserves the Phase 1 files, adds the Phase 2A Terraform
-configuration under `infra/`, and defines Phase 3A CI under `.github/workflows/`:
+configuration under `infra/`, defines Phase 3A CI under `.github/workflows/`,
+and includes Phase 3B Kubernetes reference manifests under `k8s/`:
 
 ```text
 .
@@ -129,6 +135,15 @@ configuration under `infra/`, and defines Phase 3A CI under `.github/workflows/`
 │   ├── terraform.tfvars.example
 │   ├── variables.tf
 │   └── versions.tf
+├── k8s/
+│   ├── README.md
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── network-policy.yaml
+│   ├── pod-disruption-budget.yaml
+│   ├── service-account.yaml
+│   └── service.yaml
 ├── .dockerignore
 ├── .gitignore
 ├── Dockerfile
@@ -144,6 +159,8 @@ configuration under `infra/`, and defines Phase 3A CI under `.github/workflows/`
 - Python 3.12 or newer
 - Docker
 - Trivy
+- kubectl with Kustomize support, or a standalone Kustomize binary, for
+  Kubernetes reference rendering
 
 ## Local development
 
@@ -400,6 +417,9 @@ operational support outweighs image minimization.
   were not retained in the available sanitized evidence.
 - Phase 3A covers CI only; registry publishing and gated cloud deployment are
   not implemented.
+- The Kubernetes manifests passed local YAML and policy checks but have not
+  been rendered by a native Kustomize binary, schema-validated, admitted, or
+  deployed to a cluster.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
 - Terraform state is local rather than stored in a protected remote backend.
@@ -419,7 +439,8 @@ operational support outweighs image minimization.
   while retaining explicit approval gates for infrastructure changes.
 - Implement separately gated CD for registry publishing and cloud deployment.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
-- Add pending Kubernetes reference manifests.
+- Add pinned-schema Kubernetes validation to CI and test the reference
+  deployment on a disposable cluster.
 - Add production-grade networking and observability controls, including VPC
   endpoints, flow logs, alarms, and a protected remote Terraform backend.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure
