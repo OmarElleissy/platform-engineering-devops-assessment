@@ -57,11 +57,7 @@ EXPECTED_RESOURCES = {
 }
 ECS_TRANSITION_TYPES = {"aws_ecs_service", "aws_ecs_task_definition"}
 TASK_DEFINITION_ADDRESS = "aws_ecs_task_definition.app"
-RUNNER_INGRESS_ADDRESS = 'aws_vpc_security_group_ingress_rule.alb_http["runner"]'
-BOOTSTRAP_REPLACEABLE_ADDRESSES = {
-    TASK_DEFINITION_ADDRESS,
-    RUNNER_INGRESS_ADDRESS,
-}
+RUNNER_INGRESS_BASE_ADDRESS = "aws_vpc_security_group_ingress_rule.alb_http"
 UNKNOWN_TASK_ACTIONS = {("create",), ("update",)}
 
 
@@ -270,28 +266,76 @@ def validate_plan(
                 )
             ]
 
-            replacement_addresses = {change.get("address") for change in destructive}
+            destructive_addresses = [
+                change.get("address", "") for change in destructive
+            ]
 
-            bootstrap_replacements_only = (
-                len(destructive) == len(replacement_addresses)
-                and replacement_addresses.issubset(BOOTSTRAP_REPLACEABLE_ADDRESSES)
-                and all(
-                    change.get(
-                        "change",
-                        {},
-                    ).get(
-                        "actions",
-                        [],
-                    )
-                    == ["delete", "create"]
-                    for change in destructive
-                )
+            require(
+                len(destructive_addresses) == len(set(destructive_addresses)),
+                "bootstrap plan contains duplicate destructive changes",
+            )
+
+            task_replacements = [
+                change
+                for change in destructive
+                if change.get("address") == TASK_DEFINITION_ADDRESS
+            ]
+
+            runner_deletions = [
+                change
+                for change in destructive
+                if change.get("address", "").split("[", 1)[0]
+                == RUNNER_INGRESS_BASE_ADDRESS
+            ]
+
+            unexpected_destruction = [
+                change
+                for change in destructive
+                if change not in task_replacements and change not in runner_deletions
+            ]
+
+            require(
+                not unexpected_destruction,
+                "bootstrap plan proposes unexpected destruction",
             )
 
             require(
-                bootstrap_replacements_only,
-                "bootstrap plan proposes unexpected destruction",
+                len(task_replacements) <= 1
+                and all(
+                    change.get("change", {}).get("actions") == ["delete", "create"]
+                    for change in task_replacements
+                ),
+                "bootstrap task definition replacement is invalid",
             )
+
+            require(
+                len(runner_deletions) <= 1
+                and all(
+                    change.get("change", {}).get("actions") == ["delete"]
+                    for change in runner_deletions
+                ),
+                "bootstrap runner ingress deletion is invalid",
+            )
+
+            if runner_deletions:
+                runner_creations = [
+                    change
+                    for change in active
+                    if change.get("address", "").split("[", 1)[0]
+                    == RUNNER_INGRESS_BASE_ADDRESS
+                    and change.get("change", {}).get("actions") == ["create"]
+                ]
+
+                require(
+                    len(runner_creations) == 1,
+                    "runner ingress deletion requires one replacement creation",
+                )
+
+                require(
+                    runner_creations[0].get("address")
+                    != runner_deletions[0].get("address"),
+                    "runner ingress replacement addresses must differ",
+                )
         else:
             require(
                 all(change.get("type") in ECS_TRANSITION_TYPES for change in active),

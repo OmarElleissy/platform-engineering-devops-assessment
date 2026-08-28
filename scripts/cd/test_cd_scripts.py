@@ -180,16 +180,27 @@ class TerraformPlanPolicyTests(unittest.TestCase):
                 },
                 {
                     "address": (
-                        'aws_vpc_security_group_ingress_rule.alb_http["runner"]'
+                        "aws_vpc_security_group_ingress_rule."
+                        'alb_http["203.0.113.10/32"]'
                     ),
                     "mode": "managed",
                     "type": ("aws_vpc_security_group_ingress_rule"),
                     "change": {
-                        "actions": [
-                            "delete",
-                            "create",
-                        ],
+                        "actions": ["create"],
                         "after": {},
+                        "after_unknown": {},
+                    },
+                },
+                {
+                    "address": (
+                        "aws_vpc_security_group_ingress_rule."
+                        'alb_http["198.51.100.10/32"]'
+                    ),
+                    "mode": "managed",
+                    "type": ("aws_vpc_security_group_ingress_rule"),
+                    "change": {
+                        "actions": ["delete"],
+                        "after": None,
                         "after_unknown": {},
                     },
                 },
@@ -205,6 +216,37 @@ class TerraformPlanPolicyTests(unittest.TestCase):
             ),
             (2, 1, 2),
         )
+
+    def test_bootstrap_rejects_runner_deletion_without_creation(
+        self,
+    ) -> None:
+        plan = plan_fixture(
+            ["update"],
+            0,
+        )
+
+        plan["resource_changes"].append(
+            {
+                "address": (
+                    'aws_vpc_security_group_ingress_rule.alb_http["198.51.100.10/32"]'
+                ),
+                "mode": "managed",
+                "type": ("aws_vpc_security_group_ingress_rule"),
+                "change": {
+                    "actions": ["delete"],
+                    "after": None,
+                    "after_unknown": {},
+                },
+            }
+        )
+
+        with self.assertRaises(PolicyError):
+            validate_plan(
+                plan,
+                "bootstrap",
+                SHA,
+                CIDR,
+            )
 
     def test_bootstrap_rejects_other_resource_replacement(
         self,
