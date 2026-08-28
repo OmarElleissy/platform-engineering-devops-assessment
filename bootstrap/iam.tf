@@ -126,7 +126,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ecs:CreateService",
       "ecs:DeleteCluster",
       "ecs:DeleteService",
-      "ecs:DeregisterTaskDefinition",
       "ecs:DescribeClusters",
       "ecs:DescribeServices",
       "ecs:DescribeTasks",
@@ -144,6 +143,21 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       local.ecs_task_arn,
       local.ecs_task_def_arn,
     ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid    = "DeregisterTaskDefinition"
+    effect = "Allow"
+    actions = [
+      "ecs:DeregisterTaskDefinition",
+    ]
+    resources = ["*"]
 
     condition {
       test     = "StringEquals"

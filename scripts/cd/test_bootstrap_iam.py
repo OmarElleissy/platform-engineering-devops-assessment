@@ -249,6 +249,20 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
                 self.assertIn('resources = ["*"]', block)
                 self.assertIn('variable = "aws:RequestedRegion"', block)
 
+    def test_task_definition_deregistration_is_wildcard_and_region_limited(
+        self,
+    ) -> None:
+        scoped = statement_block(self.iam, "ManageNamedECSResources")
+        self.assertNotIn('"ecs:DeregisterTaskDefinition"', scoped)
+
+        block = statement_block(self.iam, "DeregisterTaskDefinition")
+        self.assertEqual(actions(block), {"ecs:DeregisterTaskDefinition"})
+        self.assertIn('resources = ["*"]', block)
+        self.assertEqual(block.count("condition {"), 1)
+        self.assertIn('test     = "StringEquals"', block)
+        self.assertIn('variable = "aws:RequestedRegion"', block)
+        self.assertIn("values   = [var.aws_region]", block)
+
     def test_pass_role_remains_exact_and_service_limited(self) -> None:
         block = statement_block(self.iam, "PassExactECSExecutionRole")
         self.assertEqual(actions(block), {"iam:PassRole"})
