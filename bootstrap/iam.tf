@@ -18,13 +18,14 @@ locals {
   )
   log_group_arn = "arn:${local.partition}:logs:${var.aws_region}:${local.account_id}:log-group:${local.log_group_name}"
 
-  elastic_ip_arn       = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:elastic-ip/*"
-  internet_gateway_arn = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:internet-gateway/*"
-  nat_gateway_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:natgateway/*"
-  route_table_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:route-table/*"
-  security_group_arn   = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group/*"
-  subnet_arn           = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:subnet/*"
-  vpc_arn              = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:vpc/*"
+  elastic_ip_arn          = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:elastic-ip/*"
+  internet_gateway_arn    = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:internet-gateway/*"
+  nat_gateway_arn         = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:natgateway/*"
+  route_table_arn         = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:route-table/*"
+  security_group_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group/*"
+  security_group_rule_arn = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group-rule/*"
+  subnet_arn              = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:subnet/*"
+  vpc_arn                 = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:vpc/*"
 
   load_balancer_arn = "arn:${local.partition}:elasticloadbalancing:${var.aws_region}:${local.account_id}:loadbalancer/app/${local.application_name_prefix}-alb/*"
   target_group_arn  = "arn:${local.partition}:elasticloadbalancing:${var.aws_region}:${local.account_id}:targetgroup/${local.application_name_prefix}-tg/*"
@@ -342,6 +343,36 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       test     = "StringEquals"
       variable = "aws:RequestTag/Project"
       values   = [var.project_tag]
+    }
+  }
+
+  statement {
+    sid     = "TagNewSecurityGroupRules"
+    effect  = "Allow"
+    actions = ["ec2:CreateTags"]
+    resources = [
+      local.security_group_rule_arn,
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = [var.project_tag]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values = [
+        "AuthorizeSecurityGroupEgress",
+        "AuthorizeSecurityGroupIngress",
+      ]
     }
   }
 

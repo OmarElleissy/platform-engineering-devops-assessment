@@ -173,6 +173,50 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
         self.assertIn('variable = "aws:RequestTag/Project"', block)
         self.assertIn('variable = "aws:RequestedRegion"', block)
 
+    def test_security_group_rule_tagging_is_limited_to_rule_creation(
+        self,
+    ) -> None:
+        block = statement_block(
+            self.iam,
+            "TagNewSecurityGroupRules",
+        )
+
+        self.assertEqual(
+            actions(block),
+            {
+                "ec2:CreateAction",
+                "ec2:CreateTags",
+            },
+        )
+        self.assertIn(
+            'actions = ["ec2:CreateTags"]',
+            block,
+        )
+        self.assertEqual(
+            local_arns(block),
+            {"local.security_group_rule_arn"},
+        )
+        self.assertIn(
+            'variable = "aws:RequestedRegion"',
+            block,
+        )
+        self.assertIn(
+            'variable = "aws:RequestTag/Project"',
+            block,
+        )
+        self.assertIn(
+            'variable = "ec2:CreateAction"',
+            block,
+        )
+        self.assertIn(
+            '"AuthorizeSecurityGroupEgress"',
+            block,
+        )
+        self.assertIn(
+            '"AuthorizeSecurityGroupIngress"',
+            block,
+        )
+
     def test_vpc_dependent_creates_require_the_tagged_vpc(self) -> None:
         block = statement_block(self.iam, "UseTaggedVpcForNetworkCreation")
         self.assertEqual(
