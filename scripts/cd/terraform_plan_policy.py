@@ -56,6 +56,8 @@ EXPECTED_RESOURCES = {
     ),
 }
 ECS_TRANSITION_TYPES = {"aws_ecs_service", "aws_ecs_task_definition"}
+TASK_DEFINITION_ADDRESS = "aws_ecs_task_definition.app"
+UNKNOWN_TASK_ACTIONS = {("create",), ("update",)}
 
 
 def managed_changes(plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -97,8 +99,80 @@ def safe_counts(changes: list[dict[str, Any]]) -> tuple[int, int, int]:
     return added, changed, destroyed
 
 
+def find_managed_change(plan: dict[str, Any], address: str) -> dict[str, Any]:
+    """Return one exact managed resource change or fail closed."""
+    matches = [
+        change
+        for change in plan.get("resource_changes", [])
+        if change.get("mode", "managed") == "managed"
+        and change.get("address") == address
+    ]
+    require(len(matches) == 1, f"expected exactly one change for {address}")
+    return matches[0]
+
+
+def configuration_references(plan: dict[str, Any], address: str, name: str) -> set[str]:
+    """Return references for one exact Terraform configuration expression."""
+    resources = (
+        plan.get("configuration", {}).get("root_module", {}).get("resources", [])
+    )
+    matches = [resource for resource in resources if resource.get("address") == address]
+    require(len(matches) == 1, f"expected exactly one configuration for {address}")
+    expression = matches[0].get("expressions", {}).get(name)
+    require(isinstance(expression, dict), f"missing {address}.{name} expression")
+    references = expression.get("references")
+    require(isinstance(references, list), f"missing {address}.{name} references")
+    require(
+        all(isinstance(reference, str) for reference in references),
+        f"invalid {address}.{name} references",
+    )
+    return set(references)
+
+
+def allow_unknown_bootstrap_container_definitions(
+    plan: dict[str, Any], task: dict[str, Any], sha: str
+) -> None:
+    """Accept the observed first-create unknown only under exact invariants."""
+    values = task.get("values", {})
+    require(
+        "container_definitions" not in values,
+        "unknown container definitions must be omitted from planned values",
+    )
+
+    task_change = find_managed_change(plan, TASK_DEFINITION_ADDRESS)
+    change = task_change.get("change", {})
+    require(
+        tuple(change.get("actions", [])) in UNKNOWN_TASK_ACTIONS,
+        "unknown task definition has an unapproved change action",
+    )
+    require(
+        "container_definitions" not in change.get("after", {}),
+        "unknown container definitions must be omitted from change.after",
+    )
+    require(
+        change.get("after_unknown", {}).get("container_definitions") is True,
+        "container definitions are absent without an explicit Terraform unknown marker",
+    )
+    require(
+        plan.get("variables", {}).get("image_tag", {}).get("value") == sha,
+        "planned image_tag differs from the exact expected Git SHA",
+    )
+
+    references = configuration_references(
+        plan, TASK_DEFINITION_ADDRESS, "container_definitions"
+    )
+    require(
+        "aws_ecr_repository.app.repository_url" in references,
+        "task definition image is not derived from the managed ECR repository URL",
+    )
+    require(
+        "var.image_tag" in references,
+        "task definition image is not derived from the required image_tag input",
+    )
+
+
 def validate_planned_application(
-    plan: dict[str, Any], sha: str, desired_count: int, cidr: str
+    plan: dict[str, Any], mode: str, sha: str, desired_count: int, cidr: str
 ) -> None:
     """Validate the planned ECS image/count, ECR protections, and runner CIDR."""
     service = find_one_resource(plan, "aws_ecs_service")
@@ -108,19 +182,27 @@ def validate_planned_application(
     )
 
     task = find_one_resource(plan, "aws_ecs_task_definition")
-    images = container_images(task)
-    require(
-        all(image.endswith(f":{sha}") for image in images),
-        "task image is not the exact Git SHA",
-    )
-    require(
-        all(":latest" not in image for image in images),
-        "latest task image is forbidden",
-    )
-    require(
-        all(":bootstrap" not in image for image in images),
-        "bootstrap task image is forbidden",
-    )
+    raw_definitions = task.get("values", {}).get("container_definitions")
+    if isinstance(raw_definitions, str):
+        images = container_images(task)
+        require(
+            all(image.endswith(f":{sha}") for image in images),
+            "task image is not the exact Git SHA",
+        )
+        require(
+            all(":latest" not in image for image in images),
+            "latest task image is forbidden",
+        )
+        require(
+            all(":bootstrap" not in image for image in images),
+            "bootstrap task image is forbidden",
+        )
+    else:
+        require(
+            mode == "bootstrap" and desired_count == 0,
+            "container definitions must be concrete outside zero-task bootstrap",
+        )
+        allow_unknown_bootstrap_container_definitions(plan, task, sha)
 
     repository = find_one_resource(plan, "aws_ecr_repository")
     repository_values = repository.get("values", {})
@@ -160,8 +242,14 @@ def validate_plan(
         require(sha is not None and cidr is not None, "SHA and CIDR are required")
         checked_sha = require_sha(sha)
         checked_cidr = require_ipv4_cidr(cidr)
+        require(
+            plan.get("variables", {}).get("image_tag", {}).get("value") == checked_sha,
+            "planned image_tag differs from the exact expected Git SHA",
+        )
         desired_count = 0 if mode in {"bootstrap", "scale-zero"} else 1
-        validate_planned_application(plan, checked_sha, desired_count, checked_cidr)
+        validate_planned_application(
+            plan, mode, checked_sha, desired_count, checked_cidr
+        )
 
         if mode == "bootstrap":
             require(

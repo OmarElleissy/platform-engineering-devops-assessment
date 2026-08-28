@@ -15,9 +15,50 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 CIDR = "192.0.2.10/32"
 
 
-def plan_fixture(actions: list[str], desired_count: int) -> dict:
+def plan_fixture(
+    actions: list[str],
+    desired_count: int,
+    *,
+    image: str | None = None,
+    image_tag: str = SHA,
+    unknown_definitions: bool = False,
+    unknown_marker: bool = True,
+    task_actions: list[str] | None = None,
+) -> dict:
     """Return the smallest representative application plan document."""
+    task_values = {}
+    if not unknown_definitions:
+        task_values["container_definitions"] = json.dumps(
+            [{"image": image or f"example.invalid/app:{SHA}"}]
+        )
+
+    resource_changes = [
+        {
+            "address": "aws_ecs_service.app",
+            "mode": "managed",
+            "type": "aws_ecs_service",
+            "change": {"actions": actions},
+        }
+    ]
+    if unknown_definitions:
+        task_change = {
+            "actions": task_actions or ["create"],
+            "after": {},
+            "after_unknown": {},
+        }
+        if unknown_marker:
+            task_change["after_unknown"]["container_definitions"] = True
+        resource_changes.append(
+            {
+                "address": "aws_ecs_task_definition.app",
+                "mode": "managed",
+                "type": "aws_ecs_task_definition",
+                "change": task_change,
+            }
+        )
+
     return {
+        "variables": {"image_tag": {"value": image_tag}},
         "planned_values": {
             "root_module": {
                 "resources": [
@@ -29,11 +70,7 @@ def plan_fixture(actions: list[str], desired_count: int) -> dict:
                     {
                         "address": "aws_ecs_task_definition.app",
                         "type": "aws_ecs_task_definition",
-                        "values": {
-                            "container_definitions": json.dumps(
-                                [{"image": f"example.invalid/app:{SHA}"}]
-                            )
-                        },
+                        "values": task_values,
                     },
                     {
                         "address": "aws_ecr_repository.app",
@@ -58,14 +95,24 @@ def plan_fixture(actions: list[str], desired_count: int) -> dict:
                 ]
             }
         },
-        "resource_changes": [
-            {
-                "address": "aws_ecs_service.app",
-                "mode": "managed",
-                "type": "aws_ecs_service",
-                "change": {"actions": actions},
+        "resource_changes": resource_changes,
+        "configuration": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_ecs_task_definition.app",
+                        "expressions": {
+                            "container_definitions": {
+                                "references": [
+                                    "aws_ecr_repository.app.repository_url",
+                                    "var.image_tag",
+                                ]
+                            }
+                        },
+                    }
+                ]
             }
-        ],
+        },
     }
 
 
@@ -93,6 +140,68 @@ class TerraformPlanPolicyTests(unittest.TestCase):
         self.assertEqual(
             validate_plan(plan_fixture(["no-op"], 1), "live", SHA, CIDR), (0, 0, 0)
         )
+
+    def test_bootstrap_accepts_explicitly_unknown_container_definitions(self) -> None:
+        plan = plan_fixture(["create"], 0, unknown_definitions=True)
+        self.assertEqual(validate_plan(plan, "bootstrap", SHA, CIDR), (2, 0, 0))
+
+    def test_bootstrap_rejects_missing_definitions_without_unknown_marker(self) -> None:
+        plan = plan_fixture(
+            ["create"], 0, unknown_definitions=True, unknown_marker=False
+        )
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "bootstrap", SHA, CIDR)
+
+    def test_bootstrap_rejects_unknown_definitions_with_desired_count_one(
+        self,
+    ) -> None:
+        plan = plan_fixture(["create"], 1, unknown_definitions=True)
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "bootstrap", SHA, CIDR)
+
+    def test_bootstrap_rejects_unknown_definitions_with_unexpected_tag(self) -> None:
+        other_sha = "f" * 40
+        plan = plan_fixture(
+            ["create"], 0, image_tag=other_sha, unknown_definitions=True
+        )
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "bootstrap", SHA, CIDR)
+
+    def test_bootstrap_rejects_unknown_definitions_without_ecr_reference(
+        self,
+    ) -> None:
+        plan = plan_fixture(["create"], 0, unknown_definitions=True)
+        references = plan["configuration"]["root_module"]["resources"][0][
+            "expressions"
+        ]["container_definitions"]["references"]
+        references.remove("aws_ecr_repository.app.repository_url")
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "bootstrap", SHA, CIDR)
+
+    def test_live_rejects_unknown_container_definitions(self) -> None:
+        plan = plan_fixture(
+            ["update"], 1, unknown_definitions=True, task_actions=["update"]
+        )
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "live", SHA, CIDR)
+
+    def test_live_accepts_concrete_exact_sha_image(self) -> None:
+        plan = plan_fixture(["update"], 1, image=f"example.invalid/app:{SHA}")
+        self.assertEqual(validate_plan(plan, "live", SHA, CIDR), (0, 1, 0))
+
+    def test_live_rejects_mutable_or_unexpected_image_tags(self) -> None:
+        rejected_images = [
+            "example.invalid/app:latest",
+            "example.invalid/app:bootstrap",
+            "example.invalid/app:0123456",
+            f"example.invalid/app:{'f' * 40}",
+            "example.invalid/app:feature-branch",
+        ]
+        for image in rejected_images:
+            with self.subTest(image=image), self.assertRaises(PolicyError):
+                validate_plan(
+                    plan_fixture(["update"], 1, image=image), "live", SHA, CIDR
+                )
 
 
 class ECRPolicyTests(unittest.TestCase):
