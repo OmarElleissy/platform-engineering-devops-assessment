@@ -520,6 +520,13 @@ jobs:
         timeout-minutes: 15
         run: |
           set -euo pipefail
+          trap 'status=$?; echo "::error::Live validation failed at shell line ${LINENO} with exit code ${status}; private diagnostics were not printed"; exit "${status}"' ERR
+
+          VALIDATION_START_MS="$(
+            date -u -d '15 minutes ago' +%s
+          )000"
+
+          aws ecs wait services-stable \
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${ECS_SERVICE_NAME}" \
