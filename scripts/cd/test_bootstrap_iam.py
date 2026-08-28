@@ -42,7 +42,8 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     ecs:CreateCluster ecs:CreateService ecs:DeleteCluster ecs:DeleteService
     ecs:DeregisterTaskDefinition ecs:DescribeClusters ecs:DescribeServices
     ecs:DescribeTaskDefinition ecs:DescribeTasks ecs:ListClusters ecs:ListServices
-    ecs:ListTagsForResource ecs:ListTaskDefinitions ecs:ListTasks
+    ecs:ListServiceDeployments ecs:ListTagsForResource ecs:ListTaskDefinitions 
+    ecs:ListTasks
     ecs:RegisterTaskDefinition ecs:StopTask ecs:TagResource ecs:UntagResource
     ecs:UpdateService
     elasticloadbalancing:AddTags elasticloadbalancing:CreateListener

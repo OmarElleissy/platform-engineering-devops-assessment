@@ -129,6 +129,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ecs:DescribeClusters",
       "ecs:DescribeServices",
       "ecs:DescribeTasks",
+      "ecs:ListServiceDeployments",
       "ecs:ListTagsForResource",
       "ecs:ListTasks",
       "ecs:StopTask",
