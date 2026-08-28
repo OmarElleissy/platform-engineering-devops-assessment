@@ -1,10 +1,12 @@
 # Phase 3C bootstrap foundation
 
-This separate Terraform root defines the long-lived prerequisites for future
+This separate Terraform root defines the long-lived prerequisites for
 application delivery. It has deliberately local state and must be operated
 manually by an authorized administrator. Checkpoint 1 is committed and passed
-CI run `#7`, but this root has not been planned or applied and has not created
-AWS or GitHub resources.
+CI run `#7`. The root has since been applied and its retained state bucket,
+GitHub OIDC provider, and lifecycle role enabled the first gated deploy
+attempt. That attempt stopped during the zero-task application apply and did
+not reach image publication or the live ECS transition.
 
 ## Resources
 
@@ -101,19 +103,38 @@ resource-level authorization:
   constrained by region and the mandatory `Project` request tag;
 - ALB and target-group creation occur before their generated ARN suffixes are
   known and are constrained by region and the mandatory project request tag;
-- EC2 creates and untagged relationship operations (routes, route-table
-  associations, gateway attachments, and security-group rules) require broad
-  resource scope, so they are constrained by region and, for taggable creates,
-  the mandatory project request tag;
+- taggable EC2 creates are limited to the application EC2 resource types,
+  region, and mandatory project request tag. Creates that also authorize an
+  existing VPC, subnet, or Elastic IP use separate resource-tagged dependency
+  statements;
+- untagged EC2 relationship operations (routes, route-table associations,
+  gateway attachments, and security-group rules) require broad resource scope
+  and remain region constrained;
 - EC2 describes require broad resource scope and are region constrained; and
 - first use may require creation of the AWS-managed ECS or ELB service-linked
   role, constrained by the exact `iam:AWSServiceName` values.
 
 The role does not have AdministratorAccess, cannot pass an arbitrary role,
 cannot manage unrelated IAM roles, and has no access to unrelated state
-objects, ECR repositories, or log groups. A later live execution must verify
-that this policy is both sufficient and still least-privileged; no such test has
-occurred yet.
+objects, ECR repositories, or log groups. The first deploy attempt identified
+missing read permissions and EC2 dependent-resource authorization. The
+repository policy now corrects those defects, but the update has not been
+applied and the deployment has not been rerun.
+
+## Partial-apply recovery checkpoint
+
+The failed zero-task apply retained 10 managed application resources in remote
+state, with no ECS task, NAT Gateway, or load balancer running. One allocated
+Elastic IP remains and starts a public-IPv4 cost timer. A read-only
+reconciliation plan found 22 remaining creates and seven unchanged resources,
+but also three delete/create replacements because the interrupted provider
+operations left the task definition, Elastic IP, and target group tainted.
+
+Do not rerun deployment yet. An authorized administrator must first review and
+apply this bootstrap IAM update, then separately reconcile the three tainted
+state entries against the real resources. State repair is outside this policy
+change and must not be hidden by weakening the zero-task plan guard, which
+correctly rejects replacement or deletion during bootstrap.
 
 ## Validation and future operation
 

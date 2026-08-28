@@ -2,15 +2,17 @@
 
 ## Status
 
-Checkpoint 1 is committed, and CI run `#7` validated both Terraform roots with
-all four jobs passing in 1 minute 30 seconds. Checkpoint 2 now implements the
-deploy and destroy workflow code plus offline policy scripts, but those changes
-have not run in GitHub Actions. The feature branch is not merged into `main`.
+Checkpoint 1 and Checkpoint 2 are committed on `main`. CI run `#7` validated
+both Terraform roots with all four jobs passing in 1 minute 30 seconds. The
+bootstrap, protected GitHub Environment, OIDC trust, lifecycle role, and remote
+application state backend are now configured.
 
-The bootstrap has not been planned against, applied to, or queried in AWS. No
-GitHub Environment, secrets, variables, OIDC provider, lifecycle role, state
-bucket, registry integration, remote-state migration, deployment, or cleanup
-has occurred. No AWS cost has started, and no CD evidence exists.
+The first gated deploy authenticated successfully and validated its zero-task
+saved plan, but the apply stopped on least-privilege IAM defects. It created 10
+managed application resources before failing and did not reach image
+publication or the live ECS transition. There is no live endpoint, ECS task,
+NAT Gateway, or ALB. One allocated Elastic IP remains chargeable. Deployment
+and cleanup evidence are incomplete.
 
 ## Architecture and ownership boundary
 
@@ -107,7 +109,7 @@ local/empty, but migration still requires an explicit manual checkpoint:
 Migration must never run automatically in CD, and state or plans must never be
 uploaded as public GitHub artifacts.
 
-## Deploy workflow — implemented, not executed
+## Deploy workflow — first execution stopped during zero-task apply
 
 The ordinary workflow name is `Deploy application infrastructure`. It is
 manual-dispatch only, refuses a non-`main` ref or anything except the typed
@@ -123,7 +125,16 @@ and must have the matching OCI revision label before the same scan/runtime
 gates pass. A second saved plan may change only the approved ECS live
 transition. Post-apply checks emit only whitelisted ECS, task, target, HTTP, and
 CloudWatch summaries. Failure never triggers automatic destruction or state
-force-unlocking.
+force-unlocking. The first execution exercised this behavior: it stopped before
+image publication when the zero-task apply encountered insufficient
+lifecycle-role permissions.
+
+The repository IAM correction broadens only unsupported-resource-scope reads
+and tagged EC2 dependency authorization. It is not yet applied. A read-only
+reconciliation plan also found three tainted resources that would be replaced;
+the existing bootstrap policy guard rejects those deletions. An administrator
+must review IAM application and taint recovery separately before another
+workflow dispatch.
 
 ## Destroy workflow — implemented, not executed
 
@@ -141,11 +152,10 @@ be absent, ECS inactive/absent, NAT absent/deleted, the EIP released, and zero
 managed resources in application state. Bootstrap resources remain outside the
 destroy root and are retained.
 
-## Required GitHub Environment and activation sequence
+## Protected GitHub Environment and recovery sequence
 
-The protected Environment must be named exactly `assessment-aws` and must be
-created later with required reviewers and a deployment-branch rule allowing
-only `main`.
+The protected Environment is named exactly `assessment-aws`, uses required
+reviewers, and restricts deployment to `main`.
 
 Required Environment secrets:
 
@@ -157,23 +167,20 @@ Required Environment variable:
 
 - `AWS_REGION=eu-central-1`
 
-The future manual activation sequence is:
+The current manual recovery sequence is:
 
-1. Review and merge the feature branch into `main` only after CI passes.
-2. Privately back up local bootstrap and application state.
-3. Manually plan, review, and apply `bootstrap/` with verified AWS/GitHub IDs.
-4. Verify the retained bucket, OIDC trust, role, and policy in AWS.
-5. Create and protect the exact GitHub Environment and add its three secrets
-   and one region variable without exposing their values.
-6. Perform and verify the separate manual application-state migration.
-7. Manually dispatch deploy from `main` with the exact typed confirmation.
-8. Create sanitized evidence only after a successful live execution.
-9. When cleanup is approved, dispatch destroy with its typed confirmation and
+1. Privately back up bootstrap and remote application state.
+2. Review a bootstrap plan containing only the lifecycle-role inline-policy
+   update, then apply it manually under separate authorization.
+3. Verify the updated policy and its regional, tagging, trust, PassRole, and
+   state boundaries.
+4. Review the three tainted application resources and choose an explicit state
+   recovery procedure; do not weaken the bootstrap plan guard.
+5. Require a fresh zero-task plan with the existing resources preserved and no
+   replacement or deletion before another deploy dispatch.
+6. Create sanitized evidence only after a successful live execution.
+7. When cleanup is approved, dispatch destroy with its typed confirmation and
    the exact deployed full SHA; record evidence only after verified cleanup.
-
-Until all prerequisites are deliberately completed, the workflows are expected
-to be unable to authenticate or operate successfully. Workflow code alone is
-not complete CD.
 
 ## Logs, failure recovery, and cost
 

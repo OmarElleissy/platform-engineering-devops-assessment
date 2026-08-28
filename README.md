@@ -47,13 +47,15 @@ the sanitized
 [Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
 and the [Kubernetes reference deployment](k8s/README.md).
 
-**Phase 3C Checkpoint 1 is committed and Checkpoint 2 workflow code is
-implemented locally but unexecuted.** GitHub Actions run `#7` passed all four CI
-jobs in 1 minute 30 seconds and validated both Terraform roots. The repository
-now contains manual-only gated deploy/destroy workflows and offline fail-closed
-policy scripts. The feature branch is not merged into `main`; no GitHub
-Environment, secrets, OIDC configuration, AWS bootstrap, state migration,
-deployment, cleanup, cost, or CD evidence exists. See the
+**Phase 3C foundations are configured, but the first gated deploy is
+incomplete.** GitHub Actions run `#7` passed all four CI jobs in 1 minute 30
+seconds and validated both Terraform roots. A later manual deploy authenticated
+through GitHub OIDC, initialized the remote backend, and validated its
+zero-task plan, then stopped during the apply on lifecycle-role IAM defects.
+Ten managed resources remain in application state; there is no ECS task, NAT
+Gateway, ALB, or live endpoint, while one allocated Elastic IP remains
+chargeable. The repository contains a pending least-privilege IAM correction,
+but recovery and cleanup evidence are not complete. See the
 [Phase 3C continuous-delivery design](docs/phase3c-continuous-delivery.md).
 
 **There is currently no live endpoint.** The environment can be recreated from
@@ -63,8 +65,8 @@ measured service-level agreement.
 
 The following work remains pending and is not represented as complete:
 
-- Configuration and first validated execution of gated Phase 3C delivery,
-  including bootstrap, protected GitHub Environment, and state migration
+- IAM and tainted-state recovery, followed by a validated Phase 3C deployment
+  and cleanup
 - Multi-cloud network design and diagram
 - Observability/SRE design
 
@@ -100,9 +102,9 @@ not call AWS APIs.
 
 The task runs with a fixed non-root UID/GID, a read-only root filesystem, and
 all Linux capabilities dropped. The temporary listener is HTTP-only with no
-domain, ACM certificate, or TLS. The application now declares a partial S3
-backend, but the destroyed/empty local state has not yet been migrated and no
-remote backend has been created. The NAT Gateway, load balancer, public IPv4
+domain, ACM certificate, or TLS. The application uses its configured remote S3
+backend. A partial Phase 3C zero-task apply currently retains ten managed
+resources in state. The NAT Gateway, load balancer, public IPv4
 addresses, Fargate runtime, image storage, logs, and data transfer can generate
 cost. The Phase 2 environment was deliberately destroyed after validation to
 limit charges and exercise the infrastructure lifecycle, subject to the ECR
@@ -480,16 +482,17 @@ operational support outweighs image minimization.
 - The bootstrap completion time and summary, exact destruction-completion time,
   deployed image tag, billable cost, and several post-destroy inventory checks
   were not retained in the available sanitized evidence.
-- The gated CD workflow code is implemented but has not run; bootstrap, the
-  protected Environment, OIDC authentication, state migration, deployment, and
-  cleanup remain unverified and incomplete.
+- The first gated CD deploy stopped during its zero-task apply. OIDC and remote
+  backend access worked, but IAM remediation, tainted-state recovery, successful
+  deployment, and cleanup remain incomplete.
 - Native Kubernetes rendering, strict schema validation, and policy assertions
   passed in CI, but the manifests have not been admitted or deployed to a real
   cluster and no Kubernetes endpoint exists.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
-- The application has a partial protected-backend declaration, but its local
-  state has not been migrated and the bootstrap resources do not exist yet.
+- The protected remote backend and bootstrap resources exist. Partial
+  application state currently includes three tainted resources; the fail-closed
+  plan policy prevents an automatic replacement rerun.
 - The planned design uses one NAT Gateway and one running task, so it does not
   claim multi-AZ application availability.
 - The health endpoint validates process health only; it does not check external

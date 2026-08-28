@@ -18,6 +18,14 @@ locals {
   )
   log_group_arn = "arn:${local.partition}:logs:${var.aws_region}:${local.account_id}:log-group:${local.log_group_name}"
 
+  elastic_ip_arn       = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:elastic-ip/*"
+  internet_gateway_arn = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:internet-gateway/*"
+  nat_gateway_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:natgateway/*"
+  route_table_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:route-table/*"
+  security_group_arn   = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group/*"
+  subnet_arn           = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:subnet/*"
+  vpc_arn              = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:vpc/*"
+
   load_balancer_arn = "arn:${local.partition}:elasticloadbalancing:${var.aws_region}:${local.account_id}:loadbalancer/app/${local.application_name_prefix}-alb/*"
   target_group_arn  = "arn:${local.partition}:elasticloadbalancing:${var.aws_region}:${local.account_id}:targetgroup/${local.application_name_prefix}-tg/*"
   listener_arn      = "arn:${local.partition}:elasticloadbalancing:${var.aws_region}:${local.account_id}:listener/app/${local.application_name_prefix}-alb/*/*"
@@ -120,7 +128,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ecs:DeregisterTaskDefinition",
       "ecs:DescribeClusters",
       "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
       "ecs:DescribeTasks",
       "ecs:ListTagsForResource",
       "ecs:ListTasks",
@@ -168,6 +175,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     sid    = "ReadECSAccountMetadata"
     effect = "Allow"
     actions = [
+      "ecs:DescribeTaskDefinition",
       "ecs:ListClusters",
       "ecs:ListServices",
       "ecs:ListTaskDefinitions",
@@ -212,13 +220,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "elasticloadbalancing:DeleteListener",
       "elasticloadbalancing:DeleteLoadBalancer",
       "elasticloadbalancing:DeleteTargetGroup",
-      "elasticloadbalancing:DescribeListeners",
-      "elasticloadbalancing:DescribeLoadBalancerAttributes",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticloadbalancing:DescribeTags",
-      "elasticloadbalancing:DescribeTargetGroupAttributes",
-      "elasticloadbalancing:DescribeTargetGroups",
-      "elasticloadbalancing:DescribeTargetHealth",
       "elasticloadbalancing:ModifyLoadBalancerAttributes",
       "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
@@ -243,8 +244,10 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     actions = [
       "elasticloadbalancing:DescribeAccountLimits",
       "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTags",
+      "elasticloadbalancing:DescribeTargetGroupAttributes",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
     ]
@@ -254,6 +257,52 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       test     = "StringEquals"
       variable = "aws:RequestedRegion"
       values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid    = "UseTaggedVpcForNetworkCreation"
+    effect = "Allow"
+    actions = [
+      "ec2:CreateNatGateway",
+      "ec2:CreateRouteTable",
+      "ec2:CreateSecurityGroup",
+      "ec2:CreateSubnet",
+    ]
+    resources = [local.vpc_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+      values   = [var.project_tag]
+    }
+  }
+
+  statement {
+    sid     = "UseTaggedNatGatewayDependencies"
+    effect  = "Allow"
+    actions = ["ec2:CreateNatGateway"]
+    resources = [
+      local.elastic_ip_arn,
+      local.subnet_arn,
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+      values   = [var.project_tag]
     }
   }
 
@@ -270,7 +319,15 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ec2:CreateTags",
       "ec2:CreateVpc",
     ]
-    resources = ["*"]
+    resources = [
+      local.elastic_ip_arn,
+      local.internet_gateway_arn,
+      local.nat_gateway_arn,
+      local.route_table_arn,
+      local.security_group_arn,
+      local.subnet_arn,
+      local.vpc_arn,
+    ]
 
     condition {
       test     = "StringEquals"
@@ -347,6 +404,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ec2:DescribeAvailabilityZones",
       "ec2:DescribeInternetGateways",
       "ec2:DescribeNatGateways",
+      "ec2:DescribeNetworkAcls",
       "ec2:DescribeNetworkInterfaces",
       "ec2:DescribeRouteTables",
       "ec2:DescribeSecurityGroupRules",
