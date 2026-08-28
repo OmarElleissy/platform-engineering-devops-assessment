@@ -155,6 +155,76 @@ class TerraformPlanPolicyTests(unittest.TestCase):
             (1, 1, 1),
         )
 
+    def test_bootstrap_accepts_expected_redeploy_replacements(
+        self,
+    ) -> None:
+        plan = plan_fixture(
+            ["update"],
+            0,
+        )
+
+        plan["resource_changes"].extend(
+            [
+                {
+                    "address": "aws_ecs_task_definition.app",
+                    "mode": "managed",
+                    "type": "aws_ecs_task_definition",
+                    "change": {
+                        "actions": [
+                            "delete",
+                            "create",
+                        ],
+                        "after": {},
+                        "after_unknown": {},
+                    },
+                },
+                {
+                    "address": (
+                        'aws_vpc_security_group_ingress_rule.alb_http["runner"]'
+                    ),
+                    "mode": "managed",
+                    "type": ("aws_vpc_security_group_ingress_rule"),
+                    "change": {
+                        "actions": [
+                            "delete",
+                            "create",
+                        ],
+                        "after": {},
+                        "after_unknown": {},
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(
+            validate_plan(
+                plan,
+                "bootstrap",
+                SHA,
+                CIDR,
+            ),
+            (2, 1, 2),
+        )
+
+    def test_bootstrap_rejects_other_resource_replacement(
+        self,
+    ) -> None:
+        plan = plan_fixture(
+            [
+                "delete",
+                "create",
+            ],
+            0,
+        )
+
+        with self.assertRaises(PolicyError):
+            validate_plan(
+                plan,
+                "bootstrap",
+                SHA,
+                CIDR,
+            )
+
     def test_bootstrap_rejects_task_definition_delete_only(
         self,
     ) -> None:

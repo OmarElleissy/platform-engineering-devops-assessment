@@ -57,6 +57,11 @@ EXPECTED_RESOURCES = {
 }
 ECS_TRANSITION_TYPES = {"aws_ecs_service", "aws_ecs_task_definition"}
 TASK_DEFINITION_ADDRESS = "aws_ecs_task_definition.app"
+RUNNER_INGRESS_ADDRESS = 'aws_vpc_security_group_ingress_rule.alb_http["runner"]'
+BOOTSTRAP_REPLACEABLE_ADDRESSES = {
+    TASK_DEFINITION_ADDRESS,
+    RUNNER_INGRESS_ADDRESS,
+}
 UNKNOWN_TASK_ACTIONS = {("create",), ("update",)}
 
 
@@ -265,23 +270,26 @@ def validate_plan(
                 )
             ]
 
-            task_replacement_only = not destructive or (
-                len(destructive) == 1
-                and destructive[0].get("address") == TASK_DEFINITION_ADDRESS
-                and destructive[0]
-                .get(
-                    "change",
-                    {},
+            replacement_addresses = {change.get("address") for change in destructive}
+
+            bootstrap_replacements_only = (
+                len(destructive) == len(replacement_addresses)
+                and replacement_addresses.issubset(BOOTSTRAP_REPLACEABLE_ADDRESSES)
+                and all(
+                    change.get(
+                        "change",
+                        {},
+                    ).get(
+                        "actions",
+                        [],
+                    )
+                    == ["delete", "create"]
+                    for change in destructive
                 )
-                .get(
-                    "actions",
-                    [],
-                )
-                == ["delete", "create"]
             )
 
             require(
-                task_replacement_only,
+                bootstrap_replacements_only,
                 "bootstrap plan proposes unexpected destruction",
             )
         else:
