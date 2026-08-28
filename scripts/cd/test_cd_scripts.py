@@ -122,6 +122,67 @@ class TerraformPlanPolicyTests(unittest.TestCase):
             validate_plan(plan_fixture(["update"], 1), "live", SHA, CIDR), (0, 1, 0)
         )
 
+    def test_bootstrap_accepts_task_definition_replacement(
+        self,
+    ) -> None:
+        plan = plan_fixture(
+            ["update"],
+            0,
+        )
+        plan["resource_changes"].append(
+            {
+                "address": "aws_ecs_task_definition.app",
+                "mode": "managed",
+                "type": "aws_ecs_task_definition",
+                "change": {
+                    "actions": [
+                        "delete",
+                        "create",
+                    ],
+                    "after": {},
+                    "after_unknown": {},
+                },
+            }
+        )
+
+        self.assertEqual(
+            validate_plan(
+                plan,
+                "bootstrap",
+                SHA,
+                CIDR,
+            ),
+            (1, 1, 1),
+        )
+
+    def test_bootstrap_rejects_task_definition_delete_only(
+        self,
+    ) -> None:
+        plan = plan_fixture(
+            ["update"],
+            0,
+        )
+        plan["resource_changes"].append(
+            {
+                "address": "aws_ecs_task_definition.app",
+                "mode": "managed",
+                "type": "aws_ecs_task_definition",
+                "change": {
+                    "actions": ["delete"],
+                    "after": None,
+                    "after_unknown": {},
+                },
+            }
+        )
+
+        with self.assertRaises(PolicyError):
+            validate_plan(
+                plan,
+                "bootstrap",
+                SHA,
+                CIDR,
+            )
+
     def test_bootstrap_rejects_deletion(self) -> None:
         with self.assertRaises(PolicyError):
             validate_plan(plan_fixture(["delete"], 0), "bootstrap", SHA, CIDR)

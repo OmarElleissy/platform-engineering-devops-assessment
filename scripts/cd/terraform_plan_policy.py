@@ -252,12 +252,37 @@ def validate_plan(
         )
 
         if mode == "bootstrap":
+            destructive = [
+                change
+                for change in active
+                if "delete"
+                in change.get(
+                    "change",
+                    {},
+                ).get(
+                    "actions",
+                    [],
+                )
+            ]
+
+            task_replacement_only = not destructive or (
+                len(destructive) == 1
+                and destructive[0].get("address") == TASK_DEFINITION_ADDRESS
+                and destructive[0]
+                .get(
+                    "change",
+                    {},
+                )
+                .get(
+                    "actions",
+                    [],
+                )
+                == ["delete", "create"]
+            )
+
             require(
-                all(
-                    "delete" not in change.get("change", {}).get("actions", [])
-                    for change in active
-                ),
-                "bootstrap plan proposes destruction",
+                task_replacement_only,
+                "bootstrap plan proposes unexpected destruction",
             )
         else:
             require(
