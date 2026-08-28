@@ -191,6 +191,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     sid    = "ReadECSAccountMetadata"
     effect = "Allow"
     actions = [
+      "ecs:DescribeServiceDeployments",
       "ecs:DescribeTaskDefinition",
       "ecs:ListClusters",
       "ecs:ListServices",

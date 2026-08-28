@@ -41,6 +41,7 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     ecr:UploadLayerPart
     ecs:CreateCluster ecs:CreateService ecs:DeleteCluster ecs:DeleteService
     ecs:DeregisterTaskDefinition ecs:DescribeClusters ecs:DescribeServices
+    ecs:DescribeServiceDeployments
     ecs:DescribeTaskDefinition ecs:DescribeTasks ecs:ListClusters ecs:ListServices
     ecs:ListServiceDeployments ecs:ListTagsForResource ecs:ListTaskDefinitions 
     ecs:ListTasks
@@ -78,6 +79,7 @@ REQUIRED_TERRAFORM_ACTIONS = set(
 
 BROAD_REGIONAL_ACTIONS = {
     "ReadECSAccountMetadata": {
+        "ecs:DescribeServiceDeployments",
         "ecs:DescribeTaskDefinition",
         "ecs:ListClusters",
         "ecs:ListServices",
@@ -248,6 +250,19 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
                 self.assertEqual(actions(block), expected_actions)
                 self.assertIn('resources = ["*"]', block)
                 self.assertIn('variable = "aws:RequestedRegion"', block)
+
+    def test_service_deployment_describe_is_broad_and_list_remains_scoped(
+        self,
+    ) -> None:
+        broad = statement_block(self.iam, "ReadECSAccountMetadata")
+        self.assertIn('"ecs:DescribeServiceDeployments"', broad)
+        self.assertIn('resources = ["*"]', broad)
+        self.assertIn('variable = "aws:RequestedRegion"', broad)
+        self.assertIn("values   = [var.aws_region]", broad)
+
+        scoped = statement_block(self.iam, "ManageNamedECSResources")
+        self.assertNotIn('"ecs:DescribeServiceDeployments"', scoped)
+        self.assertIn('"ecs:ListServiceDeployments"', scoped)
 
     def test_task_definition_deregistration_is_wildcard_and_region_limited(
         self,
