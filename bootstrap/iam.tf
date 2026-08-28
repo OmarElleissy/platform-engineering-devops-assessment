@@ -243,6 +243,8 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     effect = "Allow"
     actions = [
       "elasticloadbalancing:DescribeAccountLimits",
+      "elasticloadbalancing:DescribeCapacityReservation",
+      "elasticloadbalancing:DescribeListenerAttributes",
       "elasticloadbalancing:DescribeListeners",
       "elasticloadbalancing:DescribeLoadBalancerAttributes",
       "elasticloadbalancing:DescribeLoadBalancers",

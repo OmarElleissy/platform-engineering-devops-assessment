@@ -50,6 +50,8 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     elasticloadbalancing:DeleteListener elasticloadbalancing:DeleteLoadBalancer
     elasticloadbalancing:DeleteTargetGroup
     elasticloadbalancing:DescribeAccountLimits
+    elasticloadbalancing:DescribeCapacityReservation
+    elasticloadbalancing:DescribeListenerAttributes
     elasticloadbalancing:DescribeListeners
     elasticloadbalancing:DescribeLoadBalancerAttributes
     elasticloadbalancing:DescribeLoadBalancers elasticloadbalancing:DescribeTags
@@ -82,6 +84,8 @@ BROAD_REGIONAL_ACTIONS = {
     },
     "DescribeRegionalELBv2Resources": {
         "elasticloadbalancing:DescribeAccountLimits",
+        "elasticloadbalancing:DescribeCapacityReservation",
+        "elasticloadbalancing:DescribeListenerAttributes",
         "elasticloadbalancing:DescribeListeners",
         "elasticloadbalancing:DescribeLoadBalancerAttributes",
         "elasticloadbalancing:DescribeLoadBalancers",
