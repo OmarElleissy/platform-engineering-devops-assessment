@@ -23,7 +23,8 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     ec2:CreateRouteTable ec2:CreateSecurityGroup ec2:CreateSubnet ec2:CreateTags
     ec2:CreateVpc ec2:DeleteInternetGateway ec2:DeleteNatGateway ec2:DeleteRoute
     ec2:DeleteRouteTable ec2:DeleteSecurityGroup ec2:DeleteSubnet ec2:DeleteTags
-    ec2:DeleteVpc ec2:DescribeAddresses ec2:DescribeAvailabilityZones
+    ec2:DeleteVpc ec2:DescribeAddresses ec2:DescribeAddressesAttribute
+    ec2:DescribeAvailabilityZones
     ec2:DescribeInternetGateways ec2:DescribeNatGateways ec2:DescribeNetworkAcls
     ec2:DescribeNetworkInterfaces ec2:DescribeRouteTables
     ec2:DescribeSecurityGroupRules ec2:DescribeSecurityGroups ec2:DescribeSubnets
@@ -91,6 +92,7 @@ BROAD_REGIONAL_ACTIONS = {
     },
     "DescribeRegionalNetworkResources": {
         "ec2:DescribeAddresses",
+        "ec2:DescribeAddressesAttribute",
         "ec2:DescribeAvailabilityZones",
         "ec2:DescribeInternetGateways",
         "ec2:DescribeNatGateways",

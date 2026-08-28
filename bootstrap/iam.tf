@@ -401,6 +401,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     effect = "Allow"
     actions = [
       "ec2:DescribeAddresses",
+      "ec2:DescribeAddressesAttribute",
       "ec2:DescribeAvailabilityZones",
       "ec2:DescribeInternetGateways",
       "ec2:DescribeNatGateways",
