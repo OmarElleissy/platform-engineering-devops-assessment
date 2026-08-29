@@ -1,9 +1,16 @@
 # Phase 2A AWS infrastructure
 
 This directory defines the smallest approved AWS platform for the existing
-containerized FastAPI service. It now declares a partial S3 backend for future
-Phase 3C delivery, but the current destroyed/empty local state has not been
-migrated and the backend bucket has not been created.
+containerized FastAPI service. Its partial S3 backend is operational: the
+separate bootstrap root created an encrypted, versioned, private bucket, and the
+application state was migrated successfully. The backend uses encryption and
+Terraform's native S3 lock-file behavior.
+
+Current remote application state contains zero managed and zero tainted
+resources after cleanup. The retained state object represents that empty
+application state. Bootstrap state remains separate, local, private, and outside
+the application lifecycle; it continues to manage the bucket, GitHub OIDC
+provider, and lifecycle role.
 
 ## Lifecycle status
 
@@ -181,16 +188,17 @@ useful only after that deployment completes successfully.
 
 ## Apply and cleanup commands
 
-The commands below are not ready for use until the separate bootstrap has been
-applied and the local application state has passed the documented manual remote
-state migration checkpoint. The implemented but unexecuted workflows will
-supply the private bucket name through a temporary `.tfbackend` file under
-`${RUNNER_TEMP}`. See the
-[Phase 3C design](../docs/phase3c-continuous-delivery.md). State, backend files,
+The bootstrap and application-state migration are complete. Future deployment
+instructions assume the existing S3 backend configuration. Gated workflows
+supply its private settings through a temporary `.tfbackend` file below
+`${RUNNER_TEMP}`; operators running Terraform locally must initialize the same
+backend privately before planning. See the
+[Phase 3C record](../docs/phase3c-continuous-delivery.md). State, backend files,
 and plans must never be public artifacts.
 
-These commands document the workflow for a future deliberate recreation.
-Review a fresh plan before every apply; do not reuse a stale saved plan:
+These commands document a future deliberate recreation after backend
+initialization. Review a fresh plan before every apply; do not reuse a stale
+saved plan:
 
 ```bash
 AWS_PROFILE=assessment-admin terraform -chdir=infra plan
@@ -213,15 +221,17 @@ separately approved image-retention policy instead.
 
 ## Limitations and tradeoffs
 
-- The partial S3 backend is not operational until bootstrap and the separate
-  manual migration checkpoint complete. Until then, the ignored local state
-  remains the authoritative state and must be privately backed up.
-- S3 native lock files and GitHub concurrency will provide separate protection:
-  the former protects state operations, while the latter serializes workflow
-  scheduling. S3 versioning is the planned state recovery mechanism.
-- The NAT Gateway, ALB, public IPv4 addresses, running Fargate task, ECR image
-  storage, CloudWatch log ingestion/storage, and data transfer can incur cost.
-  NAT and ALB hourly charges begin even while the service desired count is zero.
+- Application state is remote, encrypted, versioned, and protected by native S3
+  lock files. Bootstrap state remains intentionally local and must retain a
+  private backup because it owns the backend itself.
+- S3 native lock files and GitHub concurrency provide separate protection: the
+  former protects state operations, while the latter serializes workflow
+  scheduling. S3 versioning provides the state recovery boundary.
+- A future deployment's NAT Gateway, ALB, public IPv4 addresses, running Fargate
+  task, ECR image storage, CloudWatch log ingestion/storage, and data transfer
+  can incur cost. NAT and ALB hourly charges begin even while the service desired
+  count is zero; the recorded live application resources were removed after
+  validation to stop those charges.
 - A single NAT Gateway reduces assessment cost but makes outbound startup and
   logging from both zones dependent on one zone. Traffic from private subnet B
   to NAT Gateway A can also incur cross-zone data-transfer charges.

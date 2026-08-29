@@ -47,27 +47,28 @@ the sanitized
 [Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
 and the [Kubernetes reference deployment](k8s/README.md).
 
-**Phase 3C continuous delivery is implemented and simplified, but the revised
-lifecycle has not yet completed a GitHub execution.** Earlier manual runs
-proved OIDC and remote-backend access, then exposed several fail-closed IAM and
-workflow defects. Those runs were reconciled safely and temporary application
-resources were cleaned up. The retained bootstrap boundary contains only the
-OIDC provider, lifecycle role, and protected Terraform state storage. The
-revised workflows keep immutable publication, two-phase deployment, minimal
-live validation, and an exact deletion-only destroy plan. See the
-[Phase 3C continuous-delivery design](docs/phase3c-continuous-delivery.md).
+**Phase 3C continuous delivery is implemented and lifecycle-tested.** The gated
+deployment workflow successfully published and deployed the immutable release
+to ECS Fargate. Its final gate confirmed a stable service, exactly one running
+task, a healthy ALB target, HTTP `200`, and the exact
+`{"status":"healthy"}` response.
 
-**There is currently no live endpoint.** The environment can be recreated from
-the committed application and Terraform source in approximately 15–25 minutes
-under normal AWS and network conditions. This is a planning estimate, not a
-measured service-level agreement.
+Cleanup was completed, but the historical destroy workflow itself was not
+successful. It removed 31 of 32 Terraform-managed application resources and
+then failed on the final Elastic IP disassociation. A separately reviewed saved
+Terraform plan containing exactly one deletion removed `aws_eip.nat`. Final
+application state contains zero managed and zero tainted resources, and the
+project application resources are absent. The compact IAM resource-scope
+correction was subsequently applied and verified by a no-change bootstrap plan
+and successful simulations for both required resource types. See the
+[Phase 3C continuous-delivery record](docs/phase3c-continuous-delivery.md).
 
-The following execution work remains pending and is not represented as complete:
-
-- Run the revised deploy workflow from `main` after protected-environment
-  approval and capture sanitized validation evidence.
-- Run the revised destroy workflow after validation and capture sanitized
-  cleanup evidence.
+**There is currently no live endpoint.** Live application resources were
+removed after validation to stop application charges. The retained boundary is
+limited to the encrypted, versioned, private state bucket, GitHub OIDC provider,
+and lifecycle role. The environment can be recreated from committed source in
+approximately 15–25 minutes under normal AWS and network conditions. This is a
+planning estimate, not a measured service-level agreement.
 
 ## Implemented Phase 1 features
 
@@ -130,8 +131,8 @@ error-rate alerts. It is also a design, not deployment evidence.
 The public repository preserves the Phase 1 files, adds the Phase 2A Terraform
 configuration under `infra/`, defines Phase 3A/3B CI under
 `.github/workflows/`, includes Phase 3B Kubernetes reference manifests under
-`k8s/`, and adds Phase 3C repository-only CD foundations under `bootstrap/` and
-`docs/`:
+`k8s/`, and implements the Phase 3C gated delivery and retained bootstrap
+boundary under `.github/workflows/`, `bootstrap/`, and `docs/`:
 
 ```text
 .
@@ -309,12 +310,13 @@ runs even when validation fails.
 The workflow grants only `contents: read` and receives no AWS or registry
 credentials because CI is intentionally isolated from delivery. Registry push
 and cloud deployment remain isolated in separate manual workflows that ordinary
-CI statically validates but never invokes. The simplified Phase 3C changes have
-not yet run on GitHub. The previous Phase 2 AWS
-deployment was performed manually and is not evidence of an executed CI/CD
-deployment. Stable official action release tags are used for this assessment;
-pinning every action to a reviewed full commit SHA is a recommended production
-supply-chain enhancement.
+CI statically validates but never invokes. Those Phase 3C workflows executed
+separately under protected approval: deployment succeeded, while the historical
+destroy stopped after 31 deletions and required the reviewed one-resource
+recovery described above. The previous Phase 2 AWS deployment was manual and
+remains separate evidence. Stable official action release tags are used for
+this assessment; pinning every action to a reviewed full commit SHA is a
+recommended production supply-chain enhancement.
 
 ## Build the Docker image
 
@@ -501,13 +503,13 @@ operational support outweighs image minimization.
 
 - The Phase 2 environment is intentionally offline after validation and
   destruction; there is no retained cloud endpoint.
-- The bootstrap completion time and summary, exact destruction-completion time,
-  deployed image tag, billable cost, and several post-destroy inventory checks
-  were not retained in the available sanitized evidence.
-- Earlier gated CD runs exposed IAM and shell-policy defects before completing
-  validation. They were reconciled safely and application resources were
-  cleaned up, but the simplified lifecycle still needs one clean end-to-end
-  GitHub deploy/destroy execution and sanitized evidence.
+- The earlier Phase 2 evidence does not retain its bootstrap completion summary,
+  exact destruction-completion time, deployed image tag, billable cost, or
+  several independent post-destroy inventory checks.
+- The Phase 3C deployment workflow completed successfully, but its historical
+  destroy workflow did not: the final Elastic IP required a reviewed
+  single-resource recovery. Cleanup is complete, while a future destroy run
+  would be needed only to prove the corrected permission path end to end.
 - Native Kubernetes rendering, strict schema validation, and policy assertions
   passed in CI, but the manifests have not been admitted or deployed to a real
   cluster and no Kubernetes endpoint exists.
@@ -529,8 +531,8 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Execute the separately gated Phase 3C deploy and destroy workflows and record
-  sanitized evidence for both successful boundaries.
+- Preserve sanitized per-run evidence for any future recreation and require a
+  fully successful destroy run before describing that workflow path as proven.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Test admission and the reference deployment on a disposable cluster before
   any promotion.

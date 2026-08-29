@@ -1,13 +1,32 @@
 # Phase 3C continuous-delivery design
 
-## Status and scope
+## Final execution status
 
-Phase 3C is a repository implementation of manual, approval-gated delivery to
-the assessment AWS environment. The revised workflows have not yet completed a
-new end-to-end GitHub execution, so this document describes intended behavior,
-not new deployment evidence. Earlier fail-closed runs were reconciled safely and
-the temporary application resources were cleaned up. The bootstrap S3, OIDC, and
-IAM resources remain intentionally available for the next approved lifecycle.
+The manual, approval-gated deployment workflow completed successfully. It
+published and deployed the immutable release to ECS Fargate, then verified a
+stable service, exactly one running task, a healthy ALB target, HTTP `200`, and
+the exact `{"status":"healthy"}` response.
+
+Cleanup was a separate outcome. The automated destroy removed 31 of 32
+Terraform-managed application resources and then failed on the final Elastic IP
+disassociation. The historical destroy workflow was therefore not successful
+or green. A separately reviewed saved Terraform plan containing exactly one
+deletion removed `aws_eip.nat`. Final remote application state contains zero
+managed and zero tainted resources, and independent project-scoped checks found
+no remaining application resources.
+
+The compact IAM resource-scope correction was subsequently applied. A fresh
+bootstrap plan reported no changes, IAM simulation allowed disassociation for
+both required resource types without missing context, and bootstrap remained at
+nine managed and zero tainted resources. The encrypted, versioned, private S3
+state bucket, GitHub OIDC provider, and lifecycle role remain intentionally
+available for a future approved lifecycle.
+
+## Scope and safeguards
+
+Phase 3C separates ordinary CI from manual delivery to the assessment AWS
+environment. The sections below document the implemented workflow behavior and
+the operational lessons from its execution.
 
 CI and CD are deliberately separate. Ordinary CI has only `contents: read`; it
 tests application, Terraform, Kubernetes, workflow policy, and the exact local
@@ -124,7 +143,7 @@ repository steps are unnecessary with Terraform-owned `force_delete`. Removing
 them also eliminates a second deletion authority and leaves one reviewed saved
 plan as the source of truth.
 
-### Latest destroy reconciliation
+### Destroy failure and recovery detail
 
 The latest automated destroy removed 31 of 32 application resources, but the
 workflow did not complete successfully. The final Elastic IP operation failed
@@ -142,6 +161,8 @@ The compact final statement instead authorizes only
 interface ARN patterns. It retains the exact regional restriction and avoids a
 wildcard resource. The tradeoff is that it cannot require the `Project` resource
 tag because the AWS-managed NAT network interface does not inherit that tag.
+That compact correction is now live and was verified by a no-change bootstrap
+plan and IAM simulation for representative resources of both required types.
 
 ## Failure and recovery boundary
 
@@ -153,9 +174,12 @@ original commit contains an obsolete policy; dispatch a new run from the fixed
 `main` commit instead.
 
 The application cost timer starts when chargeable application infrastructure is
-created and ends only after the destroy workflow proves absence. NAT Gateway,
+created and ends only after absence is independently verified. For this
+lifecycle, it ended after the one-resource recovery and final empty-state and
+inventory checks—not when the failed destroy workflow stopped. NAT Gateway,
 ALB, public IPv4 allocation, Fargate, ECR, CloudWatch Logs, and data transfer may
-incur charges. Retained bootstrap resources are outside this application timer.
+incur charges during a deployment. Retained bootstrap resources are outside this
+application timer.
 
 ## Lessons learned from live validation
 
@@ -192,8 +216,10 @@ temporary application resources were cleaned up.
 
 ## Known limitations
 
-- The simplified workflow revision is locally validated but not yet proven by a
-  new GitHub deploy/destroy execution.
+- The deployment path completed successfully. The corrected final-EIP permission
+  has a clean plan and IAM-simulation result, but the historical destroy workflow
+  itself remains a failed run; only a future full lifecycle can provide a green
+  end-to-end destroy execution.
 - The assessment listener is temporary HTTP without a domain or TLS.
 - One NAT Gateway and desired count `1` reduce cost but do not provide
   production multi-AZ availability.
