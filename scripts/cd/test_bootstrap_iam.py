@@ -155,8 +155,33 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
         cls.iam = IAM_PATH.read_text(encoding="utf-8")
         cls.oidc = OIDC_PATH.read_text(encoding="utf-8")
 
-    def test_all_required_terraform_actions_are_present(self) -> None:
-        self.assertEqual(REQUIRED_TERRAFORM_ACTIONS - actions(self.iam), set())
+    def test_terraform_action_set_is_exact(self) -> None:
+        policy_actions = actions(self.iam) - {"ec2:CreateAction"}
+        self.assertEqual(policy_actions, REQUIRED_TERRAFORM_ACTIONS)
+
+    def test_state_bucket_location_and_listing_are_separately_scoped(
+        self,
+    ) -> None:
+        location = statement_block(self.iam, "ReadStateBucketLocation")
+        self.assertEqual(actions(location), {"s3:GetBucketLocation"})
+        self.assertIn(
+            "resources = [aws_s3_bucket.terraform_state.arn]",
+            location,
+        )
+        self.assertNotIn("s3:prefix", location)
+        self.assertNotIn("condition {", location)
+
+        listing = statement_block(self.iam, "ReadStateBucketMetadata")
+        self.assertEqual(actions(listing), {"s3:ListBucket"})
+        self.assertIn(
+            "resources = [aws_s3_bucket.terraform_state.arn]",
+            listing,
+        )
+        self.assertEqual(listing.count("condition {"), 1)
+        self.assertIn('test     = "StringLike"', listing)
+        self.assertIn('variable = "s3:prefix"', listing)
+        self.assertIn("var.state_key,", listing)
+        self.assertIn('"${var.state_key}.tflock",', listing)
 
     def test_network_creates_name_all_new_resource_types(self) -> None:
         block = statement_block(self.iam, "CreateTaggedNetworkResources")
@@ -263,6 +288,24 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
         scoped = statement_block(self.iam, "ManageNamedECSResources")
         self.assertNotIn('"ecs:DescribeServiceDeployments"', scoped)
         self.assertIn('"ecs:ListServiceDeployments"', scoped)
+
+    def test_list_tasks_is_wildcard_for_the_exact_cluster_and_region(
+        self,
+    ) -> None:
+        scoped = statement_block(self.iam, "ManageNamedECSResources")
+        self.assertNotIn('"ecs:ListTasks"', scoped)
+
+        block = statement_block(self.iam, "ListTasksInExactCluster")
+        self.assertEqual(actions(block), {"ecs:ListTasks"})
+        self.assertIn('resources = ["*"]', block)
+        self.assertEqual(block.count("condition {"), 2)
+        self.assertIn('test     = "StringEquals"', block)
+        self.assertIn('variable = "aws:RequestedRegion"', block)
+        self.assertIn("values   = [var.aws_region]", block)
+        self.assertIn('test     = "ArnEquals"', block)
+        self.assertIn('variable = "ecs:cluster"', block)
+        self.assertIn("values   = [local.ecs_cluster_arn]", block)
+        self.assertEqual(local_arns(block), {"local.ecs_cluster_arn"})
 
     def test_task_definition_deregistration_is_wildcard_and_region_limited(
         self,

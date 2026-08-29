@@ -37,7 +37,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     sid    = "ReadStateBucketMetadata"
     effect = "Allow"
     actions = [
-      "s3:GetBucketLocation",
       "s3:ListBucket",
     ]
     resources = [aws_s3_bucket.terraform_state.arn]
@@ -50,6 +49,13 @@ data "aws_iam_policy_document" "cd_lifecycle" {
         "${var.state_key}.tflock",
       ]
     }
+  }
+
+  statement {
+    sid       = "ReadStateBucketLocation"
+    effect    = "Allow"
+    actions   = ["s3:GetBucketLocation"]
+    resources = [aws_s3_bucket.terraform_state.arn]
   }
 
   statement {
@@ -131,7 +137,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ecs:DescribeTasks",
       "ecs:ListServiceDeployments",
       "ecs:ListTagsForResource",
-      "ecs:ListTasks",
       "ecs:StopTask",
       "ecs:TagResource",
       "ecs:UntagResource",
@@ -148,6 +153,25 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       test     = "StringEquals"
       variable = "aws:RequestedRegion"
       values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid       = "ListTasksInExactCluster"
+    effect    = "Allow"
+    actions   = ["ecs:ListTasks"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [local.ecs_cluster_arn]
     }
   }
 
