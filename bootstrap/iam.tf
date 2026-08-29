@@ -97,7 +97,6 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     effect = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchDeleteImage",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
       "ecr:CreateRepository",
@@ -431,6 +430,25 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       "ec2:ReleaseAddress",
     ]
     resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+      values   = [var.project_tag]
+    }
+  }
+
+  statement {
+    sid       = "DisassociateTaggedElasticAddress"
+    effect    = "Allow"
+    actions   = ["ec2:DisassociateAddress"]
+    resources = [local.elastic_ip_arn]
 
     condition {
       test     = "StringEquals"

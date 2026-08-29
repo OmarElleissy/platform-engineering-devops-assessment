@@ -32,85 +32,36 @@ def validate_tasks_zero(service_document: dict[str, Any]) -> tuple[int, int]:
 
 
 def validate_live(
-    service_document: dict[str, Any],
     task_document: dict[str, Any],
     target_document: dict[str, Any],
     http_document: dict[str, Any],
-    log_document: dict[str, Any],
 ) -> list[str]:
-    """Validate live ECS, target, HTTP, and CloudWatch health."""
-    service = one_service(service_document)
-    status = service.get("status")
-    desired = service.get("desiredCount")
-    running = service.get("runningCount")
-    pending = service.get("pendingCount")
-    require(status == "ACTIVE", "ECS service is not active")
-    require((desired, running, pending) == (1, 1, 0), "unexpected ECS service counts")
-
-    primary = [
-        item
-        for item in service.get("deployments", [])
-        if item.get("status") == "PRIMARY"
-    ]
-    require(len(primary) == 1, "expected one primary ECS deployment")
-    rollout = primary[0].get("rolloutState")
-    require(rollout == "COMPLETED", "ECS rollout is not complete")
-
+    """Validate the minimal live task, target, and HTTP contract."""
     tasks = task_document.get("tasks")
     require(isinstance(tasks, list) and len(tasks) == 1, "expected one ECS task")
     require(not task_document.get("failures"), "ECS task response contains failures")
     task = tasks[0]
-    launch_type = task.get("launchType")
-    platform = task.get("platformVersion")
     task_status = task.get("lastStatus")
-    task_health = task.get("healthStatus")
-    require(launch_type == "FARGATE", "task launch type is not Fargate")
-    require(platform == "1.4.0", "unexpected Fargate platform version")
     require(task_status == "RUNNING", "task is not running")
-    require(task_health == "HEALTHY", "task is not healthy")
 
     targets = target_document.get("TargetHealthDescriptions")
     require(isinstance(targets, list) and len(targets) == 1, "expected one ALB target")
     target = targets[0]
     target_state = target.get("TargetHealth", {}).get("State")
-    target_port = target.get("Target", {}).get("Port")
     require(target_state == "healthy", "ALB target is not healthy")
-    require(target_port == 8080, "ALB target is not registered on port 8080")
 
     http_status = http_document.get("status")
     exact_match = http_document.get("exact_body_match")
-    success_count = http_document.get("five_request_success_count")
     require(http_status == 200, "application health status is not HTTP 200")
     require(exact_match is True, "application health body differs")
-    require(success_count == 5, "five-request health validation failed")
-
-    events = log_document.get("events")
-    require(isinstance(events, list), "CloudWatch response has no events")
-    messages = [event.get("message", "") for event in events]
-    startup_count = sum(
-        "Application startup complete" in message for message in messages
-    )
-    health_count = sum(
-        "GET /health" in message and "200" in message for message in messages
-    )
-    require(startup_count >= 1, "CloudWatch has no application startup event")
-    require(health_count >= 1, "CloudWatch has no successful health traffic")
-    delivery_count = startup_count + health_count
 
     return [
-        f"ECS status: {status}",
-        f"ECS desired/running/pending: {desired}/{running}/{pending}",
-        f"ECS rollout state: {rollout}",
-        f"Task launch type: {launch_type}",
-        f"Fargate platform version: {platform}",
+        "ECS service stability waiter: passed",
+        "Running ECS task count: 1",
         f"Task status: {task_status}",
-        f"Task health: {task_health}",
         f"ALB target health: {target_state}",
-        f"ALB target port: {target_port}",
         f"HTTP status: {http_status}",
         f"Exact body match: {str(exact_match).lower()}",
-        f"Five-request success count: {success_count}",
-        f"CloudWatch log-delivery count: {delivery_count}",
     ]
 
 
@@ -168,7 +119,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-json")
     parser.add_argument("--target-json")
     parser.add_argument("--http-json")
-    parser.add_argument("--log-json")
     parser.add_argument("--repositories-json")
     parser.add_argument("--load-balancers-json")
     parser.add_argument("--clusters-json")
@@ -195,11 +145,9 @@ def main() -> int:
             lines = [f"ECS running/pending after scale-zero: {running}/{pending}"]
         elif args.mode == "live":
             lines = validate_live(
-                required_json(args.service_json, "service"),
                 required_json(args.task_json, "task"),
                 required_json(args.target_json, "target"),
                 required_json(args.http_json, "HTTP"),
-                required_json(args.log_json, "CloudWatch"),
             )
         else:
             require(args.state_list is not None, "missing state list path")

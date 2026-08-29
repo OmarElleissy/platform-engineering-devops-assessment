@@ -47,15 +47,14 @@ the sanitized
 [Phase 3B Kubernetes CI evidence](evidence/phase3b-kubernetes-ci-validation.md)
 and the [Kubernetes reference deployment](k8s/README.md).
 
-**Phase 3C foundations are configured, but the first gated deploy is
-incomplete.** GitHub Actions run `#7` passed all four CI jobs in 1 minute 30
-seconds and validated both Terraform roots. A later manual deploy authenticated
-through GitHub OIDC, initialized the remote backend, and validated its
-zero-task plan, then stopped during the apply on lifecycle-role IAM defects.
-Ten managed resources remain in application state; there is no ECS task, NAT
-Gateway, ALB, or live endpoint, while one allocated Elastic IP remains
-chargeable. The repository contains a pending least-privilege IAM correction,
-but recovery and cleanup evidence are not complete. See the
+**Phase 3C continuous delivery is implemented and simplified, but the revised
+lifecycle has not yet completed a GitHub execution.** Earlier manual runs
+proved OIDC and remote-backend access, then exposed several fail-closed IAM and
+workflow defects. Those runs were reconciled safely and temporary application
+resources were cleaned up. The retained bootstrap boundary contains only the
+OIDC provider, lifecycle role, and protected Terraform state storage. The
+revised workflows keep immutable publication, two-phase deployment, minimal
+live validation, and an exact deletion-only destroy plan. See the
 [Phase 3C continuous-delivery design](docs/phase3c-continuous-delivery.md).
 
 **There is currently no live endpoint.** The environment can be recreated from
@@ -63,12 +62,12 @@ the committed application and Terraform source in approximately 15–25 minutes
 under normal AWS and network conditions. This is a planning estimate, not a
 measured service-level agreement.
 
-The following work remains pending and is not represented as complete:
+The following execution work remains pending and is not represented as complete:
 
-- IAM and tainted-state recovery, followed by a validated Phase 3C deployment
-  and cleanup
-- Multi-cloud network design and diagram
-- Observability/SRE design
+- Run the revised deploy workflow from `main` after protected-environment
+  approval and capture sanitized validation evidence.
+- Run the revised destroy workflow after validation and capture sanitized
+  cleanup evidence.
 
 ## Implemented Phase 1 features
 
@@ -103,15 +102,28 @@ not call AWS APIs.
 The task runs with a fixed non-root UID/GID, a read-only root filesystem, and
 all Linux capabilities dropped. The temporary listener is HTTP-only with no
 domain, ACM certificate, or TLS. The application uses its configured remote S3
-backend. A partial Phase 3C zero-task apply currently retains ten managed
-resources in state. The NAT Gateway, load balancer, public IPv4
-addresses, Fargate runtime, image storage, logs, and data transfer can generate
-cost. The Phase 2 environment was deliberately destroyed after validation to
-limit charges and exercise the infrastructure lifecycle, subject to the ECR
-non-empty safety check. Any recreation should follow the same cleanup strategy.
+backend. The NAT Gateway, load balancer, public IPv4 addresses, Fargate runtime,
+image storage, logs, and data transfer can generate cost. Temporary application
+resources from failed CD runs were safely reconciled and cleaned up. Bootstrap
+state storage and the OIDC/IAM boundary remain by design.
 
 See [infra/README.md](infra/README.md) for the detailed Terraform workflow,
 security-scan findings, bootstrap sequence, and cleanup guidance.
+
+## Architecture and operations designs
+
+The [private multi-cloud network design](docs/network-design.md) places a
+frontend on Amazon EKS, a backend API on Azure AKS, and PostgreSQL on Azure
+private networking. It defines non-overlapping example CIDRs, redundant private
+Direct Connect/ExpressRoute transit, private DNS forwarding, traffic paths,
+security layers, tradeoffs, and a [topology diagram](docs/network-diagram.png).
+It is a reference design and has not been deployed.
+
+The [observability and SRE design](docs/observability.md) uses OpenTelemetry with
+Grafana, Mimir, Loki, and Tempo. It defines request rate, errors, latency,
+saturation, executive/application/infrastructure dashboards, structured logs,
+correlation IDs, retention, SLOs, and actionable availability, latency, and
+error-rate alerts. It is also a design, not deployment evidence.
 
 ## Repository structure
 
@@ -144,6 +156,9 @@ configuration under `infra/`, defines Phase 3A/3B CI under
 │   ├── variables.tf
 │   └── versions.tf
 ├── docs/
+│   ├── network-design.md
+│   ├── network-diagram.png
+│   ├── observability.md
 │   └── phase3c-continuous-delivery.md
 ├── evidence/
 │   ├── phase2-aws-deployment-and-cleanup.md
@@ -294,8 +309,8 @@ runs even when validation fails.
 The workflow grants only `contents: read` and receives no AWS or registry
 credentials because CI is intentionally isolated from delivery. Registry push
 and cloud deployment remain isolated in separate manual workflows that ordinary
-CI statically validates but never invokes. The Checkpoint 2 changes have not yet
-run on GitHub. The previous Phase 2 AWS
+CI statically validates but never invokes. The simplified Phase 3C changes have
+not yet run on GitHub. The previous Phase 2 AWS
 deployment was performed manually and is not evidence of an executed CI/CD
 deployment. Stable official action release tags are used for this assessment;
 pinning every action to a reviewed full commit SHA is a recommended production
@@ -435,6 +450,13 @@ scan time. Refresh Trivy's database and repeat the scans regularly.
 - **Deny-by-default build context:** `.dockerignore` excludes everything, then
   explicitly admits only `app/` and `requirements.txt`, preventing local state,
   tests, VCS metadata, and secrets from entering the build context.
+- **Federated delivery identity:** manual CD uses GitHub OIDC to obtain bounded,
+  short-lived AWS credentials only after the `main` guard, typed confirmation,
+  and protected `assessment-aws` Environment approval. No static AWS access key
+  is stored in the repository or workflow.
+- **Immutable delivery:** images are tagged with the full Git commit SHA; both
+  local and published images pass the High/Critical Trivy gate before the live
+  Terraform transition.
 
 These runtime controls are supplied explicitly by the hardened `docker run`
 command. Dockerfile compatibility alone does not automatically apply
@@ -482,17 +504,17 @@ operational support outweighs image minimization.
 - The bootstrap completion time and summary, exact destruction-completion time,
   deployed image tag, billable cost, and several post-destroy inventory checks
   were not retained in the available sanitized evidence.
-- The first gated CD deploy stopped during its zero-task apply. OIDC and remote
-  backend access worked, but IAM remediation, tainted-state recovery, successful
-  deployment, and cleanup remain incomplete.
+- Earlier gated CD runs exposed IAM and shell-policy defects before completing
+  validation. They were reconciled safely and application resources were
+  cleaned up, but the simplified lifecycle still needs one clean end-to-end
+  GitHub deploy/destroy execution and sanitized evidence.
 - Native Kubernetes rendering, strict schema validation, and policy assertions
   passed in CI, but the manifests have not been admitted or deployed to a real
   cluster and no Kubernetes endpoint exists.
 - The deployed assessment used plaintext HTTP without TLS or a custom domain;
   no endpoint is retained after cleanup.
-- The protected remote backend and bootstrap resources exist. Partial
-  application state currently includes three tainted resources; the fail-closed
-  plan policy prevents an automatic replacement rerun.
+- The protected remote backend and bootstrap OIDC/IAM resources remain after
+  application cleanup and require a separately authorized retirement process.
 - The planned design uses one NAT Gateway and one running task, so it does not
   claim multi-AZ application availability.
 - The health endpoint validates process health only; it does not check external
@@ -507,14 +529,14 @@ operational support outweighs image minimization.
 - Expand health semantics if the service gains external dependencies.
 - Automate future Phase 2 recreation, evidence capture, and verified cleanup
   while retaining explicit approval gates for infrastructure changes.
-- Configure and verify the Phase 3C prerequisites, then execute the separately
-  gated deploy/destroy workflows after manual bootstrap and state migration.
+- Execute the separately gated Phase 3C deploy and destroy workflows and record
+  sanitized evidence for both successful boundaries.
 - Pin GitHub Actions dependencies to reviewed full commit SHAs.
 - Test admission and the reference deployment on a disposable cluster before
   any promotion.
-- Add production-grade networking and observability controls, including VPC
-  endpoints, flow logs, and alarms; consider customer-managed KMS encryption
-  for the Terraform backend.
+- Convert the documented [private multi-cloud network design](docs/network-design.md)
+  and [observability design](docs/observability.md) into separately reviewed
+  implementation plans if production deployment is required.
 - Add TLS and a managed cloud endpoint during the appropriate infrastructure
   phase.
 

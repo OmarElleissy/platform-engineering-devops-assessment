@@ -204,10 +204,12 @@ environment deliberately:
 AWS_PROFILE=assessment-admin terraform -chdir=infra destroy
 ```
 
-The ECR repository uses `force_delete = false`. Terraform destroy will refuse
-to delete it while it contains images; remove retained images deliberately
-before retrying cleanup. Do not enable forced deletion merely to bypass this
-safety control.
+The ECR repository uses `force_delete = true` because it is a disposable,
+project-named assessment repository. The protected destroy workflow first scales
+ECS to zero, validates a deletion-only saved plan, and applies that exact plan;
+Terraform then owns repository and image cleanup as one reviewed operation. A
+production repository with retention or forensic requirements should use a
+separately approved image-retention policy instead.
 
 ## Limitations and tradeoffs
 

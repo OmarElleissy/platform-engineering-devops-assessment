@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from aws_policy import validate_live
 from common import PolicyError
-from ecr_policy import find_tag, validated_inventory
+from ecr_policy import find_tag, validated_inventory, write_batches
 from sanitize_apply import extract_summary
 from terraform_plan_policy import validate_plan
 
@@ -77,7 +79,7 @@ def plan_fixture(
                         "type": "aws_ecr_repository",
                         "values": {
                             "image_tag_mutability": "IMMUTABLE",
-                            "force_delete": False,
+                            "force_delete": True,
                         },
                     },
                     {
@@ -376,6 +378,48 @@ class TerraformPlanPolicyTests(unittest.TestCase):
                     plan_fixture(["update"], 1, image=image), "live", SHA, CIDR
                 )
 
+    def test_live_rejects_disabled_force_delete(self) -> None:
+        plan = plan_fixture(["update"], 1)
+        repository = plan["planned_values"]["root_module"]["resources"][2]
+        repository["values"]["force_delete"] = False
+        with self.assertRaises(PolicyError):
+            validate_plan(plan, "live", SHA, CIDR)
+
+    def test_destroy_accepts_allowlisted_deletions_only(self) -> None:
+        plan = {
+            "resource_changes": [
+                {
+                    "address": "aws_ecr_repository.app",
+                    "mode": "managed",
+                    "type": "aws_ecr_repository",
+                    "change": {"actions": ["delete"]},
+                }
+            ]
+        }
+        self.assertEqual(validate_plan(plan, "destroy"), (0, 0, 1))
+
+    def test_destroy_rejects_non_deletion_or_unallowlisted_resource(self) -> None:
+        invalid_changes = [
+            {
+                "address": "aws_ecr_repository.app",
+                "mode": "managed",
+                "type": "aws_ecr_repository",
+                "change": {"actions": ["update"]},
+            },
+            {
+                "address": "aws_s3_bucket.unrelated",
+                "mode": "managed",
+                "type": "aws_s3_bucket",
+                "change": {"actions": ["delete"]},
+            },
+        ]
+        for change in invalid_changes:
+            with (
+                self.subTest(address=change["address"]),
+                self.assertRaises(PolicyError),
+            ):
+                validate_plan({"resource_changes": [change]}, "destroy")
+
 
 class ECRPolicyTests(unittest.TestCase):
     def test_find_exact_tag(self) -> None:
@@ -387,6 +431,19 @@ class ECRPolicyTests(unittest.TestCase):
         document = {"imageDetails": [{"imageDigest": "sha256:" + "a" * 64}]}
         with self.assertRaises(PolicyError):
             validated_inventory(document)
+
+    def test_write_batches_creates_raw_image_id_lists(self) -> None:
+        digests = [f"sha256:{index:064x}" for index in range(101)]
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(write_batches(digests, directory), 2)
+            first = json.loads((Path(directory) / "batch-0001.json").read_text())
+            second = json.loads((Path(directory) / "batch-0002.json").read_text())
+
+        self.assertIsInstance(first, list)
+        self.assertIsInstance(second, list)
+        self.assertEqual(len(first), 100)
+        self.assertEqual(second, [{"imageDigest": digests[100]}])
+        self.assertNotIsInstance(first, dict)
 
 
 class SanitizationTests(unittest.TestCase):
@@ -400,25 +457,13 @@ class SanitizationTests(unittest.TestCase):
 
 class AWSLivePolicyTests(unittest.TestCase):
     def test_live_summary_contains_only_safe_fields(self) -> None:
-        service = {
-            "services": [
-                {
-                    "status": "ACTIVE",
-                    "desiredCount": 1,
-                    "runningCount": 1,
-                    "pendingCount": 0,
-                    "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED"}],
-                }
-            ],
-            "failures": [],
-        }
         tasks = {
             "tasks": [
                 {
                     "launchType": "FARGATE",
                     "platformVersion": "1.4.0",
                     "lastStatus": "RUNNING",
-                    "healthStatus": "HEALTHY",
+                    "healthStatus": "UNKNOWN",
                 }
             ],
             "failures": [],
@@ -431,17 +476,40 @@ class AWSLivePolicyTests(unittest.TestCase):
         http = {
             "status": 200,
             "exact_body_match": True,
-            "five_request_success_count": 5,
         }
-        logs = {
-            "events": [
-                {"message": "Application startup complete"},
-                {"message": 'GET /health HTTP/1.1" 200'},
-            ]
+        lines = validate_live(tasks, targets, http)
+        self.assertIn("ECS service stability waiter: passed", lines)
+        self.assertIn("Running ECS task count: 1", lines)
+        self.assertIn("Task status: RUNNING", lines)
+        self.assertNotIn("Task health: UNKNOWN", lines)
+
+    def test_live_gate_rejects_each_failed_outcome(self) -> None:
+        valid_task = {"tasks": [{"lastStatus": "RUNNING"}], "failures": []}
+        valid_target = {
+            "TargetHealthDescriptions": [{"TargetHealth": {"State": "healthy"}}]
         }
-        lines = validate_live(service, tasks, targets, http, logs)
-        self.assertIn("ECS desired/running/pending: 1/1/0", lines)
-        self.assertIn("CloudWatch log-delivery count: 2", lines)
+        valid_http = {"status": 200, "exact_body_match": True}
+        invalid_inputs = [
+            ({"tasks": [], "failures": []}, valid_target, valid_http),
+            (
+                {"tasks": [{"lastStatus": "PENDING"}], "failures": []},
+                valid_target,
+                valid_http,
+            ),
+            (
+                valid_task,
+                {"TargetHealthDescriptions": [{"TargetHealth": {"State": "initial"}}]},
+                valid_http,
+            ),
+            (valid_task, valid_target, {"status": 503, "exact_body_match": True}),
+            (valid_task, valid_target, {"status": 200, "exact_body_match": False}),
+        ]
+        for task, target, http in invalid_inputs:
+            with (
+                self.subTest(task=task, target=target, http=http),
+                self.assertRaises(PolicyError),
+            ):
+                validate_live(task, target, http)
 
 
 if __name__ == "__main__":

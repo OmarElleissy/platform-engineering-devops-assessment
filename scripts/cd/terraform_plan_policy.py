@@ -212,8 +212,8 @@ def validate_planned_application(
         "ECR must remain immutable",
     )
     require(
-        repository_values.get("force_delete") is False,
-        "ECR force_delete must remain false",
+        repository_values.get("force_delete") is True,
+        "ECR force_delete must remain enabled for disposable cleanup",
     )
 
     ingress = find_one_address(plan, "aws_vpc_security_group_ingress_rule.alb_http")

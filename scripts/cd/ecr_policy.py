@@ -66,11 +66,7 @@ def write_batches(digests: list[str], directory: str | Path) -> int:
     batch_count = 0
     for offset in range(0, len(digests), 100):
         batch_count += 1
-        batch = {
-            "imageIds": [
-                {"imageDigest": item} for item in digests[offset : offset + 100]
-            ]
-        }
+        batch = [{"imageDigest": item} for item in digests[offset : offset + 100]]
         (destination / f"batch-{batch_count:04d}.json").write_text(json.dumps(batch))
     return batch_count
 

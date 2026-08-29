@@ -116,25 +116,20 @@ resource-level authorization:
 
 The role does not have AdministratorAccess, cannot pass an arbitrary role,
 cannot manage unrelated IAM roles, and has no access to unrelated state
-objects, ECR repositories, or log groups. The first deploy attempt identified
-missing read permissions and EC2 dependent-resource authorization. The
-repository policy now corrects those defects, but the update has not been
-applied and the deployment has not been rerun.
+objects, ECR repositories, or log groups. Live validation exposed several AWS
+resource-scope and provider-read requirements. Those corrections were applied
+and verified without broad managed policies. The final Elastic IP cleanup path
+also permits `ec2:DisassociateAddress` only for the project-tagged assessment
+Elastic IP in the configured region.
 
-## Partial-apply recovery checkpoint
+## Reconciled application checkpoint
 
-The failed zero-task apply retained 10 managed application resources in remote
-state, with no ECS task, NAT Gateway, or load balancer running. One allocated
-Elastic IP remains and starts a public-IPv4 cost timer. A read-only
-reconciliation plan found 22 remaining creates and seven unchanged resources,
-but also three delete/create replacements because the interrupted provider
-operations left the task definition, Elastic IP, and target group tainted.
-
-Do not rerun deployment yet. An authorized administrator must first review and
-apply this bootstrap IAM update, then separately reconcile the three tainted
-state entries against the real resources. State repair is outside this policy
-change and must not be hidden by weakening the zero-task plan guard, which
-correctly rejects replacement or deletion during bootstrap.
+Earlier failed application runs stopped safely and were reconciled against
+remote state and AWS reality before cleanup. Temporary application resources
+were removed; bootstrap state storage, the OIDC provider, and this lifecycle
+role remain intentionally available. The simplified workflow revision still
+requires a new approved deploy/destroy execution before it can be described as
+end-to-end validated.
 
 ## Validation and future operation
 

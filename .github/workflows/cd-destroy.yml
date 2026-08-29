@@ -91,14 +91,13 @@ jobs:
           echo "::add-mask::${EXPECTED_DEPLOYED_SHA}"
 
           cd_temp="${RUNNER_TEMP}/platform-assessment-cd"
-          mkdir -p "${cd_temp}/docker" "${cd_temp}/terraform-data" "${cd_temp}/ecr-batches"
-          chmod 0700 "${cd_temp}" "${cd_temp}/docker" "${cd_temp}/terraform-data"
+          mkdir -p "${cd_temp}/terraform-data"
+          chmod 0700 "${cd_temp}" "${cd_temp}/terraform-data"
           backend_file="${cd_temp}/application.tfbackend"
           printf 'bucket = "%s"\n' "${TF_STATE_BUCKET}" > "${backend_file}"
           chmod 0600 "${backend_file}"
           {
             echo "CD_TEMP=${cd_temp}"
-            echo "DOCKER_CONFIG=${cd_temp}/docker"
             echo "TF_DATA_DIR=${cd_temp}/terraform-data"
             echo "BACKEND_FILE=${backend_file}"
             echo "TF_VAR_aws_region=${AWS_REGION}"
@@ -225,46 +224,6 @@ jobs:
             --mode tasks-zero \
             --service-json "${CD_TEMP}/scale-service.json"
 
-      - name: Validate managed ECR inventory and create digest batches
-        id: ecr-inventory
-        run: |
-          set -euo pipefail
-          test "${ECR_REPOSITORY_NAME}" = "platform-assessment-app"
-          aws ecr describe-images \
-            --repository-name "${ECR_REPOSITORY_NAME}" \
-            --output json > "${CD_TEMP}/ecr-inventory.json" 2> "${CD_TEMP}/ecr-inventory-error.log"
-          python scripts/cd/ecr_policy.py \
-            --mode inventory \
-            --json "${CD_TEMP}/ecr-inventory.json" \
-            --batch-dir "${CD_TEMP}/ecr-batches" \
-            --github-output "${GITHUB_OUTPUT}"
-
-      - name: Delete only validated images by digest
-        run: |
-          set -euo pipefail
-          deleted_batches=0
-          for batch in "${CD_TEMP}/ecr-batches"/batch-*.json; do
-            if [ ! -e "${batch}" ]; then
-              continue
-            fi
-            deleted_batches=$((deleted_batches + 1))
-            aws ecr batch-delete-image \
-              --repository-name "${ECR_REPOSITORY_NAME}" \
-              --image-ids "file://${batch}" \
-              --output json > "${CD_TEMP}/ecr-delete-${deleted_batches}.json" \
-              2> "${CD_TEMP}/ecr-delete-error.log"
-          done
-          test "${deleted_batches}" = "${{ steps.ecr-inventory.outputs.BATCH_COUNT }}"
-          echo "ECR digest deletion batch count: ${deleted_batches}"
-
-      - name: Confirm managed ECR repository is empty
-        run: |
-          set -euo pipefail
-          aws ecr describe-images \
-            --repository-name "${ECR_REPOSITORY_NAME}" \
-            --output json > "${CD_TEMP}/ecr-empty.json" 2> "${CD_TEMP}/ecr-empty-error.log"
-          python scripts/cd/ecr_policy.py --mode empty --json "${CD_TEMP}/ecr-empty.json"
-
       - name: Refresh OIDC credentials for Terraform destruction
         uses: aws-actions/configure-aws-credentials@v6.2.3
         timeout-minutes: 3
@@ -356,9 +315,6 @@ jobs:
       - name: Clean temporary files
         if: ${{ always() }}
         run: |
-          if [ -n "${ECR_REGISTRY:-}" ]; then
-            docker logout "${ECR_REGISTRY}" > /dev/null 2>&1 || true
-          fi
           if [ -n "${CD_TEMP:-}" ] && [[ "${CD_TEMP}" == "${RUNNER_TEMP}/"* ]]; then
             rm -rf "${CD_TEMP}"
           fi

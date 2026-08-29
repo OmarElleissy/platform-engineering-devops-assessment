@@ -29,10 +29,11 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     ec2:DescribeNetworkInterfaces ec2:DescribeRouteTables
     ec2:DescribeSecurityGroupRules ec2:DescribeSecurityGroups ec2:DescribeSubnets
     ec2:DescribeVpcAttribute ec2:DescribeVpcs ec2:DetachInternetGateway
-    ec2:DisassociateRouteTable ec2:ModifySubnetAttribute ec2:ModifyVpcAttribute
+    ec2:DisassociateAddress ec2:DisassociateRouteTable
+    ec2:ModifySubnetAttribute ec2:ModifyVpcAttribute
     ec2:ReleaseAddress ec2:RevokeSecurityGroupEgress
     ec2:RevokeSecurityGroupIngress
-    ecr:BatchCheckLayerAvailability ecr:BatchDeleteImage ecr:BatchGetImage
+    ecr:BatchCheckLayerAvailability ecr:BatchGetImage
     ecr:CompleteLayerUpload ecr:CreateRepository ecr:DeleteRepository
     ecr:DescribeImages ecr:DescribeRepositories ecr:GetAuthorizationToken
     ecr:GetDownloadUrlForLayer ecr:InitiateLayerUpload ecr:ListImages
@@ -267,6 +268,16 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
         )
         self.assertIn('variable = "aws:ResourceTag/Project"', block)
         self.assertIn('variable = "aws:RequestedRegion"', block)
+
+    def test_elastic_ip_disassociation_is_exact_and_tag_limited(self) -> None:
+        block = statement_block(self.iam, "DisassociateTaggedElasticAddress")
+        self.assertEqual(actions(block), {"ec2:DisassociateAddress"})
+        self.assertEqual(local_arns(block), {"local.elastic_ip_arn"})
+        self.assertEqual(block.count("condition {"), 2)
+        self.assertIn('variable = "aws:RequestedRegion"', block)
+        self.assertIn("values   = [var.aws_region]", block)
+        self.assertIn('variable = "aws:ResourceTag/Project"', block)
+        self.assertIn("values   = [var.project_tag]", block)
 
     def test_broad_regional_reads_are_exact_and_region_limited(self) -> None:
         for sid, expected_actions in BROAD_REGIONAL_ACTIONS.items():

@@ -199,6 +199,45 @@ def validate_one(path: Path, policy: dict[str, Any]) -> None:
             text.count("aws ecs wait services-stable") == 1,
             f"{path.name}: ECS service stability waiter must occur exactly once",
         )
+        for required in (
+            "aws ecs list-tasks",
+            "aws ecs describe-tasks",
+            "aws elbv2 describe-target-health",
+            "expected exactly one running ECS task",
+            "${APPLICATION_URL}/health",
+            '\'{"status":"healthy"}\'',
+        ):
+            require(
+                required in text, f"{path.name}: missing live validation: {required}"
+            )
+        require(
+            "five_request_success_count" not in text,
+            f"{path.name}: redundant five-request gate remains",
+        )
+        require(
+            "aws logs filter-log-events" not in text,
+            f"{path.name}: CloudWatch logs remain a blocking deployment gate",
+        )
+    else:
+        for required in (
+            "--mode scale-zero",
+            "--mode destroy",
+            "terraform -chdir=infra state list",
+            "aws ecr describe-repositories",
+            "aws elbv2 describe-load-balancers",
+            "aws ecs describe-clusters",
+            "aws ec2 describe-nat-gateways",
+            "aws ec2 describe-addresses",
+        ):
+            require(required in text, f"{path.name}: missing destroy guard: {required}")
+        require(
+            "aws ecr batch-delete-image" not in text,
+            f"{path.name}: redundant ECR batch deletion remains",
+        )
+        require(
+            "--mode inventory" not in text and "--mode empty" not in text,
+            f"{path.name}: redundant ECR inventory validation remains",
+        )
 
     for forbidden in FORBIDDEN_TEXT:
         require(

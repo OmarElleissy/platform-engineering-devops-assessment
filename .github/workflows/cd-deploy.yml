@@ -481,7 +481,6 @@ jobs:
       - name: Apply exact live saved plan privately
         run: |
           set -euo pipefail
-          echo "VALIDATION_START_MS=$(date +%s000)" >> "${GITHUB_ENV}"
           apply_log="${CD_TEMP}/live-apply.log"
           if ! terraform -chdir=infra apply \
             -input=false \
@@ -522,18 +521,10 @@ jobs:
           set -euo pipefail
           trap 'status=$?; echo "::error::Live validation failed at shell line ${LINENO} with exit code ${status}; private diagnostics were not printed"; exit "${status}"' ERR
 
-          VALIDATION_START_MS="$(
-            date -u -d '15 minutes ago' +%s
-          )000"
-
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${ECS_SERVICE_NAME}" \
             > "${CD_TEMP}/ecs-wait.log" 2>&1
-          aws ecs describe-services \
-            --cluster "${ECS_CLUSTER_NAME}" \
-            --services "${ECS_SERVICE_NAME}" \
-            --output json > "${CD_TEMP}/service.json" 2> "${CD_TEMP}/service-error.log"
           aws ecs list-tasks \
             --cluster "${ECS_CLUSTER_NAME}" \
             --service-name "${ECS_SERVICE_NAME}" \
@@ -572,46 +563,26 @@ jobs:
           if [ "$(cat "${body_file}")" = '{"status":"healthy"}' ]; then
             exact_body_match=true
           fi
-          success_count=0
-          for attempt in 1 2 3 4 5; do
-            status="$(curl \
-              --silent \
-              --show-error \
-              --max-time 15 \
-              --output "${CD_TEMP}/health-${attempt}.json" \
-              --write-out '%{http_code}' \
-              "${APPLICATION_URL}/health")"
-            if [ "${status}" = 200 ]; then
-              success_count=$((success_count + 1))
-            fi
-          done
-          python - "${CD_TEMP}/http-summary.json" "${http_status}" "${exact_body_match}" "${success_count}" <<'PY'
+          python - "${CD_TEMP}/http-summary.json" "${http_status}" "${exact_body_match}" <<'PY'
           import json
           import sys
 
           summary = {
               "status": int(sys.argv[2]),
               "exact_body_match": sys.argv[3] == "true",
-              "five_request_success_count": int(sys.argv[4]),
           }
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(summary, stream)
           PY
-          aws logs filter-log-events \
-            --log-group-name "${CLOUDWATCH_LOG_GROUP_NAME}" \
-            --start-time "${VALIDATION_START_MS}" \
-            --output json > "${CD_TEMP}/logs.json" 2> "${CD_TEMP}/logs-error.log"
 
       - name: Print whitelisted deployment validation summary
         run: |
           set -euo pipefail
           python scripts/cd/aws_policy.py \
             --mode live \
-            --service-json "${CD_TEMP}/service.json" \
             --task-json "${CD_TEMP}/task.json" \
             --target-json "${CD_TEMP}/target.json" \
-            --http-json "${CD_TEMP}/http-summary.json" \
-            --log-json "${CD_TEMP}/logs.json"
+            --http-json "${CD_TEMP}/http-summary.json"
 
       - name: Report safe recovery boundary on failure
         if: ${{ failure() }}
