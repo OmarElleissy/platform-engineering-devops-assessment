@@ -269,35 +269,20 @@ class BootstrapIAMPolicyTests(unittest.TestCase):
         self.assertIn('variable = "aws:ResourceTag/Project"', block)
         self.assertIn('variable = "aws:RequestedRegion"', block)
 
-    def test_elastic_ip_disassociation_is_exact_and_tag_limited(self) -> None:
+    def test_address_disassociation_is_exact_and_region_limited(self) -> None:
         block = statement_block(self.iam, "DisassociateTaggedElasticAddress")
         self.assertEqual(actions(block), {"ec2:DisassociateAddress"})
-        self.assertEqual(local_arns(block), {"local.elastic_ip_arn"})
-        self.assertNotIn('resources = ["*"]', block)
-        self.assertEqual(block.count("condition {"), 2)
-        self.assertIn('variable = "aws:RequestedRegion"', block)
-        self.assertIn("values   = [var.aws_region]", block)
-        self.assertIn('variable = "aws:ResourceTag/Project"', block)
-        self.assertIn("values   = [var.project_tag]", block)
-        self.assertNotIn('variable = "aws:RequestTag/Project"', block)
-
-    def test_network_interface_disassociation_is_exact_and_region_limited(
-        self,
-    ) -> None:
-        block = statement_block(
-            self.iam, "DisassociateAddressFromRegionalNetworkInterface"
+        self.assertEqual(
+            local_arns(block),
+            {"local.elastic_ip_arn", "local.network_interface_arn"},
         )
-        self.assertEqual(actions(block), {"ec2:DisassociateAddress"})
-        self.assertEqual(local_arns(block), {"local.network_interface_arn"})
         self.assertNotIn('resources = ["*"]', block)
         self.assertEqual(block.count("condition {"), 1)
         self.assertIn('variable = "aws:RequestedRegion"', block)
         self.assertIn("values   = [var.aws_region]", block)
         self.assertNotIn('variable = "aws:ResourceTag/Project"', block)
         self.assertNotIn('variable = "aws:RequestTag/Project"', block)
-
-    def test_disassociate_address_is_confined_to_dedicated_statements(self) -> None:
-        self.assertEqual(self.iam.count('"ec2:DisassociateAddress"'), 2)
+        self.assertEqual(self.iam.count('"ec2:DisassociateAddress"'), 1)
 
     def test_broad_regional_reads_are_exact_and_region_limited(self) -> None:
         for sid, expected_actions in BROAD_REGIONAL_ACTIONS.items():

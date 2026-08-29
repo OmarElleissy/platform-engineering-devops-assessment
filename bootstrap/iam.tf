@@ -447,29 +447,13 @@ data "aws_iam_policy_document" "cd_lifecycle" {
   }
 
   statement {
-    sid       = "DisassociateTaggedElasticAddress"
-    effect    = "Allow"
-    actions   = ["ec2:DisassociateAddress"]
-    resources = [local.elastic_ip_arn]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestedRegion"
-      values   = [var.aws_region]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/Project"
-      values   = [var.project_tag]
-    }
-  }
-
-  statement {
-    sid       = "DisassociateAddressFromRegionalNetworkInterface"
-    effect    = "Allow"
-    actions   = ["ec2:DisassociateAddress"]
-    resources = [local.network_interface_arn]
+    sid     = "DisassociateTaggedElasticAddress"
+    effect  = "Allow"
+    actions = ["ec2:DisassociateAddress"]
+    resources = [
+      local.elastic_ip_arn,
+      local.network_interface_arn,
+    ]
 
     condition {
       test     = "StringEquals"

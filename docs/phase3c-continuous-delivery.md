@@ -132,9 +132,16 @@ because `ec2:DisassociateAddress` also required authorization for the
 AWS-managed NAT network interface, which does not inherit the project's
 `Project` tag. A reviewed, exact single-resource Terraform recovery plan then
 removed the Elastic IP. Final application state contains zero managed resources,
-and no project Elastic IP remains. The IAM regression correction authorizes the
-regional network-interface side separately so future destroys do not encounter
-the same failure.
+and no project Elastic IP remains.
+
+The first IAM regression correction used separate statements for the two
+resource types, but AWS rejected that inline-policy update atomically because
+the lifecycle role's aggregate inline policy exceeded the non-adjustable quota.
+The compact final statement instead authorizes only
+`ec2:DisassociateAddress` against the account-and-region Elastic IP and network-
+interface ARN patterns. It retains the exact regional restriction and avoids a
+wildcard resource. The tradeoff is that it cannot require the `Project` resource
+tag because the AWS-managed NAT network interface does not inherit that tag.
 
 ## Failure and recovery boundary
 
@@ -174,9 +181,10 @@ incur charges. Retained bootstrap resources are outside this application timer.
   an explicit health check, while the final gate relies on observable service,
   target, and HTTP outcomes.
 - Final EIP cleanup requires `ec2:DisassociateAddress` for both the tagged
-  Elastic IP and the AWS-managed NAT network interface. Separate regional
-  resource statements preserve the Elastic IP tag boundary while authorizing
-  the untagged network-interface side of the operation.
+  Elastic IP and the AWS-managed NAT network interface. One compact regional
+  statement covers both resource patterns without a wildcard; its exact action
+  cannot use the `Project` tag condition because the managed interface is
+  untagged.
 
 These failures were fail-closed: raw private data was not published, bootstrap
 resources were retained, each partial application was reconciled, and the
