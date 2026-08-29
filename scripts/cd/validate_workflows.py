@@ -199,6 +199,10 @@ def validate_one(path: Path, policy: dict[str, Any]) -> None:
             text.count("aws ecs wait services-stable") == 1,
             f"{path.name}: ECS service stability waiter must occur exactly once",
         )
+        require(
+            text.count("aws elbv2 wait target-in-service") == 1,
+            f"{path.name}: ALB target health waiter must occur exactly once",
+        )
         for required in (
             "aws ecs list-tasks",
             "aws ecs describe-tasks",

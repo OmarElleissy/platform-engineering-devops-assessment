@@ -547,6 +547,9 @@ jobs:
             --cluster "${ECS_CLUSTER_NAME}" \
             --tasks "${task_arn}" \
             --output json > "${CD_TEMP}/task.json" 2> "${CD_TEMP}/task-error.log"
+          aws elbv2 wait target-in-service \
+            --target-group-arn "${TARGET_GROUP_ARN}" \
+            > "${CD_TEMP}/target-wait.log" 2>&1
           aws elbv2 describe-target-health \
             --target-group-arn "${TARGET_GROUP_ARN}" \
             --output json > "${CD_TEMP}/target.json" 2> "${CD_TEMP}/target-error.log"
