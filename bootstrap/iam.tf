@@ -21,6 +21,7 @@ locals {
   elastic_ip_arn          = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:elastic-ip/*"
   internet_gateway_arn    = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:internet-gateway/*"
   nat_gateway_arn         = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:natgateway/*"
+  network_interface_arn   = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:network-interface/*"
   route_table_arn         = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:route-table/*"
   security_group_arn      = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group/*"
   security_group_rule_arn = "arn:${local.partition}:ec2:${var.aws_region}:${local.account_id}:security-group-rule/*"
@@ -461,6 +462,19 @@ data "aws_iam_policy_document" "cd_lifecycle" {
       test     = "StringEquals"
       variable = "aws:ResourceTag/Project"
       values   = [var.project_tag]
+    }
+  }
+
+  statement {
+    sid       = "DisassociateAddressFromRegionalNetworkInterface"
+    effect    = "Allow"
+    actions   = ["ec2:DisassociateAddress"]
+    resources = [local.network_interface_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
     }
   }
 

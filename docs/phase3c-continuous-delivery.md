@@ -124,6 +124,18 @@ repository steps are unnecessary with Terraform-owned `force_delete`. Removing
 them also eliminates a second deletion authority and leaves one reviewed saved
 plan as the source of truth.
 
+### Latest destroy reconciliation
+
+The latest automated destroy removed 31 of 32 application resources, but the
+workflow did not complete successfully. The final Elastic IP operation failed
+because `ec2:DisassociateAddress` also required authorization for the
+AWS-managed NAT network interface, which does not inherit the project's
+`Project` tag. A reviewed, exact single-resource Terraform recovery plan then
+removed the Elastic IP. Final application state contains zero managed resources,
+and no project Elastic IP remains. The IAM regression correction authorizes the
+regional network-interface side separately so future destroys do not encounter
+the same failure.
+
 ## Failure and recovery boundary
 
 A failure never triggers automatic destroy, state mutation, force-unlock, or a
@@ -161,8 +173,10 @@ incur charges. Retained bootstrap resources are outside this application timer.
 - ECS task `healthStatus` must match task-definition semantics. The task now has
   an explicit health check, while the final gate relies on observable service,
   target, and HTTP outcomes.
-- Final EIP cleanup can require `ec2:DisassociateAddress` before release. The CD
-  role grants that action only for the tagged assessment Elastic IP in-region.
+- Final EIP cleanup requires `ec2:DisassociateAddress` for both the tagged
+  Elastic IP and the AWS-managed NAT network interface. Separate regional
+  resource statements preserve the Elastic IP tag boundary while authorizing
+  the untagged network-interface side of the operation.
 
 These failures were fail-closed: raw private data was not published, bootstrap
 resources were retained, each partial application was reconciled, and the
