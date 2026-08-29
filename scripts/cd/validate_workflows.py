@@ -194,6 +194,11 @@ def validate_one(path: Path, policy: dict[str, Any]) -> None:
         "terraform output\n" not in text,
         f"{path.name}: ordinary Terraform output is forbidden",
     )
+    if path == DEPLOY_PATH:
+        require(
+            text.count("aws ecs wait services-stable") == 1,
+            f"{path.name}: ECS service stability waiter must occur exactly once",
+        )
 
     for forbidden in FORBIDDEN_TEXT:
         require(

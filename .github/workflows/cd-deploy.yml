@@ -527,7 +527,6 @@ jobs:
           )000"
 
           aws ecs wait services-stable \
-          aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${ECS_SERVICE_NAME}" \
             > "${CD_TEMP}/ecs-wait.log" 2>&1
