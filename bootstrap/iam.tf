@@ -97,6 +97,7 @@ data "aws_iam_policy_document" "cd_lifecycle" {
     effect = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchDeleteImage",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
       "ecr:CreateRepository",

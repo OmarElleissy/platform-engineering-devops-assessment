@@ -33,7 +33,7 @@ REQUIRED_TERRAFORM_ACTIONS = set(
     ec2:ModifySubnetAttribute ec2:ModifyVpcAttribute
     ec2:ReleaseAddress ec2:RevokeSecurityGroupEgress
     ec2:RevokeSecurityGroupIngress
-    ecr:BatchCheckLayerAvailability ecr:BatchGetImage
+    ecr:BatchCheckLayerAvailability ecr:BatchDeleteImage ecr:BatchGetImage
     ecr:CompleteLayerUpload ecr:CreateRepository ecr:DeleteRepository
     ecr:DescribeImages ecr:DescribeRepositories ecr:GetAuthorizationToken
     ecr:GetDownloadUrlForLayer ecr:InitiateLayerUpload ecr:ListImages
